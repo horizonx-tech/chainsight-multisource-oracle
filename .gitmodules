@@ -1,0 +1,3 @@
+[submodule "multi-source-oracle/lib/forge-std"]
+	path = multi-source-oracle/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
