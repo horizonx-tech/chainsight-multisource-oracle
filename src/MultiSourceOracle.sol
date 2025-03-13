@@ -28,8 +28,8 @@ contract MultiSourceOracle is Ownable {
     // ----------------------------------------------------
     // Optional Pyth feed
     // ----------------------------------------------------
-    IPyth public pyth;           // if address(0), skip pyth
-    bytes32 public pythPriceId;  // only relevant if pyth != address(0)
+    IPyth public pyth; // if address(0), skip pyth
+    bytes32 public pythPriceId; // only relevant if pyth != address(0)
 
     // ----------------------------------------------------
     // Multiple Chainsight sources
@@ -39,13 +39,14 @@ contract MultiSourceOracle is Ownable {
         address sender;
         bytes32 key;
     }
+
     ChainsightSource[] public chainsightSources;
 
     // ----------------------------------------------------
     // Configuration
     // ----------------------------------------------------
-    uint256 public staleThreshold = 3600;       // 1 hour
-    uint256 public lambda = 1925;               // weighting half-life ~1 hour
+    uint256 public staleThreshold = 3600; // 1 hour
+    uint256 public lambda = 1925; // weighting half-life ~1 hour
     uint256 public maxPriceDeviationBps = 2000; // ±20%
 
     // Outlier detection applies iff:
@@ -70,7 +71,7 @@ contract MultiSourceOracle is Ownable {
         address _pyth,
         bytes32 _pythPriceId,
         ChainsightSource[] memory _chainsightOracles
-    ) Ownable (msg.sender) {
+    ) Ownable(msg.sender) {
         if (_chainlinkFeed != address(0)) {
             chainlinkFeed = AggregatorV3Interface(_chainlinkFeed);
         }
@@ -108,16 +109,8 @@ contract MultiSourceOracle is Ownable {
     /**
      * @notice Adds a Chainsight source to the aggregator
      */
-    function addChainsightSource(
-        address oracle,
-        address sender,
-        bytes32 key
-    ) external onlyOwner {
-        ChainsightSource memory src = ChainsightSource({
-            oracle: IChainSight(oracle),
-            sender: sender,
-            key: key
-        });
+    function addChainsightSource(address oracle, address sender, bytes32 key) external onlyOwner {
+        ChainsightSource memory src = ChainsightSource({oracle: IChainSight(oracle), sender: sender, key: key});
         chainsightSources.push(src);
     }
 
@@ -165,13 +158,7 @@ contract MultiSourceOracle is Ownable {
     function latestRoundData()
         external
         view
-        returns (
-            uint80,
-            int256 answer,
-            uint256 startedAt,
-            uint256 updatedAt,
-            uint80
-        )
+        returns (uint80, int256 answer, uint256 startedAt, uint256 updatedAt, uint80)
     {
         uint256 agg = _getAggregatedPrice();
         return (0, int256(agg), block.timestamp, block.timestamp, 0);
@@ -189,8 +176,8 @@ contract MultiSourceOracle is Ownable {
         uint256 agg = _getAggregatedPrice();
         return IPyth.Price(
             int64(int256(agg)),
-            0,     // dummy confidence
-            -8,    // indicates 8 decimals
+            0, // dummy confidence
+            -8, // indicates 8 decimals
             block.timestamp
         );
     }
@@ -204,11 +191,7 @@ contract MultiSourceOracle is Ownable {
      *         we just return the aggregated price.
      * @dev If your environment needs a "dedicated" chainsight read, consider adding more logic.
      */
-    function readAsUint256WithTimestamp(address /*sender*/, bytes32 /*key*/)
-        external
-        view
-        returns (uint256, uint64)
-    {
+    function readAsUint256WithTimestamp(address, /*sender*/ bytes32 /*key*/ ) external view returns (uint256, uint64) {
         uint256 agg = _getAggregatedPrice();
         return (agg, uint64(block.timestamp));
     }
@@ -217,8 +200,8 @@ contract MultiSourceOracle is Ownable {
     // Internal aggregator logic
     // ----------------------------------------------------
     struct SourceData {
-        uint256 price;    // scaled to 8 decimals
-        uint256 weight;   // 0 => stale or outlier
+        uint256 price; // scaled to 8 decimals
+        uint256 weight; // 0 => stale or outlier
         uint256 timestamp;
     }
 
@@ -283,12 +266,7 @@ contract MultiSourceOracle is Ownable {
 
         // Chainlink
         if (address(chainlinkFeed) != address(0)) {
-            (
-                ,
-                int256 clAnswer,
-                ,
-                uint256 clTime,
-            ) = chainlinkFeed.latestRoundData();
+            (, int256 clAnswer,, uint256 clTime,) = chainlinkFeed.latestRoundData();
             require(clAnswer >= 0, "Chainlink negative");
             uint256 clScaled = _scaleChainlinkPrice(clAnswer, chainlinkFeed.decimals());
             uint256 clWeight = _validWeight(clTime);
@@ -308,8 +286,9 @@ contract MultiSourceOracle is Ownable {
 
         // Chainsight
         for (uint256 i = 0; i < chainsightSources.length; i++) {
-            (uint256 cPrice, uint64 cTime) = chainsightSources[i].oracle
-                .readAsUint256WithTimestamp(chainsightSources[i].sender, chainsightSources[i].key);
+            (uint256 cPrice, uint64 cTime) = chainsightSources[i].oracle.readAsUint256WithTimestamp(
+                chainsightSources[i].sender, chainsightSources[i].key
+            );
 
             // cPrice is unsigned => no negative check
             uint256 csWeight = _validWeight(cTime);
