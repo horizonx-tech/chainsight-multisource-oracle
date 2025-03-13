@@ -10,9 +10,8 @@ interface IPyth {
         // Price exponent
         int32 expo;
         // Unix timestamp describing when the price was published
-        uint publishTime;
+        uint256 publishTime;
     }
-    function getPriceUnsafe(
-        bytes32 id
-    ) external view returns (Price memory price);
+
+    function getPriceUnsafe(bytes32 id) external view returns (Price memory price);
 }

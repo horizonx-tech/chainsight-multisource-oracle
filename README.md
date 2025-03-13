@@ -1,66 +1,8 @@
-## Foundry
+# ChainSight Multi-Source Oracle
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
-
-Foundry consists of:
-
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
-
-## Documentation
-
-https://book.getfoundry.sh/
-
-## Usage
-
-### Build
-
-```shell
-$ forge build
-```
-
-### Test
-
-```shell
-$ forge test
-```
-
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
+ChainSight’s Oracle Aggregator is a hybrid price feed that combines data from Chainlink, Pyth, and ChainSight to produce a single robust price on an EVM-compatible blockchain. The design uses a weighted aggregation of these feeds, with weights dynamically adjustable by ChainSight’s Relayer. The aggregator runs as an on-chain Solidity contract that ingests the latest prices from each oracle source, applies the specified weights, and stores a consolidated price for use by other contracts. By leveraging multiple oracles, the system gains redundancy and accuracy – if one data source is slow or faulty, the others can compensate. 
 
 ### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
 ```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
+forge script script/DeployMultiSourceOracle.s.sol --broadcast --rpc-url $SEPOLIA_RPC_URL --private-key $PRIVATE_KEY
 ```

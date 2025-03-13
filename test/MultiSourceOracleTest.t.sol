@@ -16,12 +16,7 @@ contract ChainlinkMock is AggregatorV3Interface {
         return _decimals;
     }
 
-    function latestRoundData()
-        external
-        view
-        override
-        returns (uint80, int256, uint256, uint256, uint80)
-    {
+    function latestRoundData() external view override returns (uint80, int256, uint256, uint256, uint80) {
         return (0, _answer, 0, _updatedAt, 0);
     }
 
@@ -42,12 +37,7 @@ contract PythMock is IPyth {
         storedPrice = Price(_price, 0, _expo, _publishTime);
     }
 
-    function getPriceUnsafe(bytes32)
-        external
-        view
-        override
-        returns (Price memory)
-    {
+    function getPriceUnsafe(bytes32) external view override returns (Price memory) {
         return storedPrice;
     }
 }
@@ -61,12 +51,7 @@ contract ChainsightMock is IChainSight {
         _ts = t;
     }
 
-    function readAsUint256WithTimestamp(address, bytes32)
-        external
-        view
-        override
-        returns (uint256, uint64)
-    {
+    function readAsUint256WithTimestamp(address, bytes32) external view override returns (uint256, uint64) {
         return (_price, _ts);
     }
 }
@@ -106,19 +91,14 @@ contract MultiSourceOracleTest is Test {
         });
 
         // constructor(address chainlinkFeed, address pyth, bytes32 pythPriceId, ChainsightSource[] memory)
-        oracle = new MultiSourceOracle(
-            address(chainlink),
-            address(pyth),
-            bytes32("TestPrice"),
-            initCs
-        );
+        oracle = new MultiSourceOracle(address(chainlink), address(pyth), bytes32("TestPrice"), initCs);
 
         vm.warp(1700000000); // set block.timestamp
     }
 
     function _readOracle() internal view returns (uint256) {
         // call chainlink-like interface
-        (, int256 ans, , , ) = oracle.latestRoundData();
+        (, int256 ans,,,) = oracle.latestRoundData();
         return uint256(ans);
     }
 
