@@ -13,5 +13,7 @@ interface IPyth {
         uint256 publishTime;
     }
 
+    function getPrice(bytes32) external view returns (Price memory price);
+
     function getPriceUnsafe(bytes32 id) external view returns (Price memory price);
 }

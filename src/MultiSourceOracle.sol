@@ -169,7 +169,26 @@ contract MultiSourceOracle is Ownable {
     // ----------------------------------------------------
     function getPriceUnsafe(bytes32 id) external view returns (IPyth.Price memory) {
         // If pyth is not used, this will revert anyway because pyth=address(0).
-        // But let's check ID too.
+        require(address(pyth) != address(0), "No pyth");
+        require(id == pythPriceId, "Invalid pyth ID");
+
+        uint256 agg = _getAggregatedPrice();
+        return IPyth.Price(
+            int64(int256(agg)),
+            0, // dummy confidence
+            -8, // indicates 8 decimals
+            block.timestamp
+        );
+    }
+
+    /**
+     * @notice A "safe" version similar to Pyth's getPrice which reverts in Pyth if the underlying data is stale.
+     *         However, our aggregator does not revert when stale (it falls back to newest stale).
+     *         Here, for simplicity, we return the aggregated price just like getPriceUnsafe, but
+     *         still keep the same signature as Pyth’s getPrice.
+     *         If you need a strict “revert if stale” behavior, you can add custom checks here.
+     */
+    function getPrice(bytes32 id) external view returns (IPyth.Price memory price) {
         require(address(pyth) != address(0), "No pyth");
         require(id == pythPriceId, "Invalid pyth ID");
 
@@ -189,7 +208,6 @@ contract MultiSourceOracle is Ownable {
      * @notice Because this aggregator might combine many chainsight oracles,
      *         we do not strictly validate the sender/key passed in. Instead,
      *         we just return the aggregated price.
-     * @dev If your environment needs a "dedicated" chainsight read, consider adding more logic.
      */
     function readAsUint256WithTimestamp(address, /*sender*/ bytes32 /*key*/ ) external view returns (uint256, uint64) {
         uint256 agg = _getAggregatedPrice();
