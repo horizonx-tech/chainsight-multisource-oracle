@@ -32,9 +32,19 @@ contract ChainlinkMock is AggregatorV3Interface {
 
 contract PythMock is IPyth {
     Price private storedPrice;
+    // If you want to emulate Pyth’s revert on stale, define a validTimePeriod here. For demonstration:
+    uint256 public validTimePeriod = 300;
 
     function setPrice(int64 _price, int32 _expo, uint256 _publishTime) external {
         storedPrice = Price(_price, 0, _expo, _publishTime);
+    }
+
+    function getPrice(bytes32) external view override returns (Price memory price) {
+        // This reverts if the price is older than validTimePeriod
+        if (block.timestamp > storedPrice.publishTime + validTimePeriod) {
+            revert("StalePrice");
+        }
+        return storedPrice;
     }
 
     function getPriceUnsafe(bytes32) external view override returns (Price memory) {
@@ -254,5 +264,26 @@ contract MultiSourceOracleTest is Test {
 
         uint256 agg2 = _readOracle();
         assertEq(agg2, 60000 * 1e8, "Should read new pyth feed");
+    }
+
+    function test_GetPrice() public {
+        // Give chainlink a price = 50,000
+        chainlink.setLatestAnswer(int256(50000 * 1e8), block.timestamp);
+
+        // Give pyth a price = 52,000
+        pyth.setPrice(52000, 0, block.timestamp);
+
+        // cs1 => 51,500
+        cs1.setPrice(51500 * 1e8, uint64(block.timestamp));
+
+        // aggregator’s approximate average ~ 51k
+        IPyth.Price memory unsafePrice = oracle.getPriceUnsafe(bytes32("TestPrice"));
+        IPyth.Price memory safePrice = oracle.getPrice(bytes32("TestPrice"));
+
+        // Both calls should match in this aggregator (since we do not revert when stale).
+        assertEq(unsafePrice.price, safePrice.price, "Should match aggregator price");
+        assertEq(unsafePrice.publishTime, safePrice.publishTime, "Publish time should match");
+        assertEq(unsafePrice.expo, safePrice.expo, "Exponent should match");
+        assertEq(unsafePrice.conf, safePrice.conf, "Confidence should match");
     }
 }
