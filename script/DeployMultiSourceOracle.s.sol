@@ -10,7 +10,7 @@ import {IChainSight} from "../src/interface/IChainSight.sol";
  *
  * Usage (example):
  *   forge script script/DeployMultiSourceOracle.s.sol \
- *     --rpc-url $SEPOLIA_RPC_URL \
+ *     --rpc-url $RPC_URL \
  *     --private-key $PRIVATE_KEY \
  *     --broadcast
  *
