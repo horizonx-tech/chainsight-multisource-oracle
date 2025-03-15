@@ -31,11 +31,7 @@ contract AddChainsightSourceScript is Script {
         vm.startBroadcast();
 
         // 3) Call addChainsightSource on the existing oracle
-        MultiSourceOracle(oracleAddr).addChainsightSource(
-            chainsightOracle,
-            chainsightSender,
-            chainsightKey
-        );
+        MultiSourceOracle(oracleAddr).addChainsightSource(chainsightOracle, chainsightSender, chainsightKey);
 
         // 4) Optionally log the result
         console2.log("Added chainsight source to MultiSourceOracle:", oracleAddr);

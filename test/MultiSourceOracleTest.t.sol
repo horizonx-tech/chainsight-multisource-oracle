@@ -18,12 +18,7 @@ contract ChainlinkMock is AggregatorV3Interface {
         return _decimals;
     }
 
-    function latestRoundData()
-        external
-        view
-        override
-        returns (uint80, int256, uint256, uint256, uint80)
-    {
+    function latestRoundData() external view override returns (uint80, int256, uint256, uint256, uint80) {
         return (0, _answer, 0, _updatedAt, 0);
     }
 
@@ -44,26 +39,18 @@ contract PythMock is IPyth {
     Price private storedPrice;
     uint256 public validTimePeriod = 300;
 
-    function setPrice(
-        int64 _price,
-        int32 _expo,
-        uint256 _publishTime
-    ) external {
+    function setPrice(int64 _price, int32 _expo, uint256 _publishTime) external {
         storedPrice = Price(_price, 0, _expo, _publishTime);
     }
 
-    function getPrice(
-        bytes32
-    ) external view override returns (Price memory price) {
+    function getPrice(bytes32) external view override returns (Price memory price) {
         if (block.timestamp > storedPrice.publishTime + validTimePeriod) {
             revert("StalePrice");
         }
         return storedPrice;
     }
 
-    function getPriceUnsafe(
-        bytes32
-    ) external view override returns (Price memory) {
+    function getPriceUnsafe(bytes32) external view override returns (Price memory) {
         return storedPrice;
     }
 }
@@ -80,10 +67,7 @@ contract ChainsightMock is IChainSight {
         _ts = t;
     }
 
-    function readAsUint256WithTimestamp(
-        address,
-        bytes32
-    ) external view override returns (uint256, uint64) {
+    function readAsUint256WithTimestamp(address, bytes32) external view override returns (uint256, uint64) {
         return (_price, _ts);
     }
 }
@@ -102,27 +86,19 @@ contract MultiSourceOracleTest is Test {
 
     // Helpers to read aggregator
     function _readOracleChainlinkStyle() internal view returns (uint256) {
-        (, int256 ans, , , ) = oracle.latestRoundData();
+        (, int256 ans,,,) = oracle.latestRoundData();
         return uint256(ans);
     }
 
-    function _readOraclePythSafe(
-        bytes32 id
-    ) internal view returns (IPyth.Price memory) {
+    function _readOraclePythSafe(bytes32 id) internal view returns (IPyth.Price memory) {
         return oracle.getPrice(id);
     }
 
-    function _readOraclePythUnsafe(
-        bytes32 id
-    ) internal view returns (IPyth.Price memory) {
+    function _readOraclePythUnsafe(bytes32 id) internal view returns (IPyth.Price memory) {
         return oracle.getPriceUnsafe(id);
     }
 
-    function _readOracleChainsightStyle()
-        internal
-        view
-        returns (uint256, uint64)
-    {
+    function _readOracleChainsightStyle() internal view returns (uint256, uint64) {
         return oracle.readAsUint256WithTimestamp(address(0), bytes32(0));
     }
 
@@ -136,8 +112,7 @@ contract MultiSourceOracleTest is Test {
         cs2 = new ChainsightMock();
 
         // Prepare initial Chainsight array [cs1 only]
-        MultiSourceOracle.ChainsightSource[]
-            memory initCs = new MultiSourceOracle.ChainsightSource[](1);
+        MultiSourceOracle.ChainsightSource[] memory initCs = new MultiSourceOracle.ChainsightSource[](1);
         initCs[0] = MultiSourceOracle.ChainsightSource({
             oracle: IChainSight(address(cs1)),
             sender: address(this),
@@ -145,12 +120,7 @@ contract MultiSourceOracleTest is Test {
         });
 
         // Deploy aggregator with chainlink + pyth + cs1
-        oracle = new MultiSourceOracle(
-            address(chainlink),
-            address(pyth),
-            bytes32("TestPrice"),
-            initCs
-        );
+        oracle = new MultiSourceOracle(address(chainlink), address(pyth), bytes32("TestPrice"), initCs);
 
         // fix time
         vm.warp(1700000000);
@@ -202,11 +172,7 @@ contract MultiSourceOracleTest is Test {
 
         // aggregator => chainlink-like => expects 192671999500
         uint256 chainlinkStyle = _readOracleChainlinkStyle();
-        assertEq(
-            chainlinkStyle,
-            192671999500,
-            "Pyth-only aggregator mismatch (chainlink-like interface)"
-        );
+        assertEq(chainlinkStyle, 192671999500, "Pyth-only aggregator mismatch (chainlink-like interface)");
 
         // aggregator => pyth-like => same
         IPyth.Price memory pData = _readOraclePythSafe(bytes32("TestPrice"));
@@ -227,11 +193,7 @@ contract MultiSourceOracleTest is Test {
         cs1.setPrice(192213000000, uint64(block.timestamp));
 
         uint256 chainlinkStyle = _readOracleChainlinkStyle();
-        assertEq(
-            chainlinkStyle,
-            192213000000,
-            "Chainsight-only aggregator mismatch"
-        );
+        assertEq(chainlinkStyle, 192213000000, "Chainsight-only aggregator mismatch");
     }
 
     /**
@@ -300,7 +262,7 @@ contract MultiSourceOracleTest is Test {
         oracle.getPrice(bytes32("TestPrice"));
 
         // aggregator => chainsight-like read
-        (uint256 csVal, ) = _readOracleChainsightStyle();
+        (uint256 csVal,) = _readOracleChainsightStyle();
         assertEq(cStyle, csVal, "Chainlink-like vs chainsight-like mismatch");
     }
 
@@ -333,24 +295,12 @@ contract MultiSourceOracleTest is Test {
         IPyth.Price memory pUnsafe = _readOraclePythUnsafe(bytes32("TestPrice"));
 
         // aggregator => chainsight-like
-        (uint256 csVal, ) = _readOracleChainsightStyle();
+        (uint256 csVal,) = _readOracleChainsightStyle();
 
         // all should match
-        assertEq(
-            aggregatorVal,
-            uint256(int256(pSafe.price)),
-            "Mismatch aggregator vs Pyth.getPrice"
-        );
-        assertEq(
-            aggregatorVal,
-            uint256(int256(pUnsafe.price)),
-            "Mismatch aggregator vs Pyth.getPriceUnsafe"
-        );
-        assertEq(
-            aggregatorVal,
-            csVal,
-            "Mismatch aggregator vs chainsight-like read"
-        );
+        assertEq(aggregatorVal, uint256(int256(pSafe.price)), "Mismatch aggregator vs Pyth.getPrice");
+        assertEq(aggregatorVal, uint256(int256(pUnsafe.price)), "Mismatch aggregator vs Pyth.getPriceUnsafe");
+        assertEq(aggregatorVal, csVal, "Mismatch aggregator vs chainsight-like read");
     }
 
     /**
@@ -382,7 +332,7 @@ contract MultiSourceOracleTest is Test {
         IPyth.Price memory pUnsafe = oracle.getPriceUnsafe(bytes32("TestPrice"));
 
         // read aggregator chainsight-like
-        (uint256 csVal, ) = oracle.readAsUint256WithTimestamp(address(0), bytes32(0));
+        (uint256 csVal,) = oracle.readAsUint256WithTimestamp(address(0), bytes32(0));
 
         // cross-check all
         assertEq(aggregatorVal, csVal, "Mismatch aggregator vs chainsight-like");
@@ -407,35 +357,17 @@ contract MultiSourceOracleTest is Test {
         uint256 chainlinkStyle = _readOracleChainlinkStyle();
 
         IPyth.Price memory pSafe = _readOraclePythSafe(bytes32("TestPrice"));
-        IPyth.Price memory pUnsafe = _readOraclePythUnsafe(
-            bytes32("TestPrice")
-        );
-        (uint256 csVal, ) = _readOracleChainsightStyle();
+        IPyth.Price memory pUnsafe = _readOraclePythUnsafe(bytes32("TestPrice"));
+        (uint256 csVal,) = _readOracleChainsightStyle();
 
-        assertEq(
-            chainlinkStyle,
-            uint256(int256(pSafe.price)),
-            "Mismatch aggregator vs Pyth.getPrice"
-        );
-        assertEq(
-            chainlinkStyle,
-            uint256(int256(pUnsafe.price)),
-            "Mismatch aggregator vs Pyth.getPriceUnsafe"
-        );
-        assertEq(
-            chainlinkStyle,
-            csVal,
-            "Mismatch aggregator vs Chainsight read"
-        );
+        assertEq(chainlinkStyle, uint256(int256(pSafe.price)), "Mismatch aggregator vs Pyth.getPrice");
+        assertEq(chainlinkStyle, uint256(int256(pUnsafe.price)), "Mismatch aggregator vs Pyth.getPriceUnsafe");
+        assertEq(chainlinkStyle, csVal, "Mismatch aggregator vs Chainsight read");
 
         // aggregator sets pSafe.publishTime = block.timestamp
         // aggregator sets pUnsafe.publishTime= block.timestamp as well
         // just confirm they match
-        assertEq(
-            uint256(pSafe.publishTime),
-            uint256(pUnsafe.publishTime),
-            "Expected pyth safe/unsafe timestamps match"
-        );
+        assertEq(uint256(pSafe.publishTime), uint256(pUnsafe.publishTime), "Expected pyth safe/unsafe timestamps match");
     }
 
     // ----------------------------------------------------
@@ -490,11 +422,7 @@ contract MultiSourceOracleTest is Test {
 
         // All stale => fallback to newest => chainlink
         uint256 agg = _readOracleChainlinkStyle();
-        assertEq(
-            agg,
-            183916600000,
-            "Should fallback to chainlink as newest stale"
-        );
+        assertEq(agg, 183916600000, "Should fallback to chainlink as newest stale");
     }
 
     function test_PauseUnpause() public {
@@ -548,22 +476,12 @@ contract MultiSourceOracleTest is Test {
         cs1.setPrice(192213000000, uint64(block.timestamp));
 
         // aggregator => ~1,929 or so
-        IPyth.Price memory unsafePrice = oracle.getPriceUnsafe(
-            bytes32("TestPrice")
-        );
+        IPyth.Price memory unsafePrice = oracle.getPriceUnsafe(bytes32("TestPrice"));
         IPyth.Price memory safePrice = oracle.getPrice(bytes32("TestPrice"));
 
         // aggregator doesn't revert if stale in this code => both calls match
-        assertEq(
-            unsafePrice.price,
-            safePrice.price,
-            "Should match aggregator price"
-        );
-        assertEq(
-            unsafePrice.publishTime,
-            safePrice.publishTime,
-            "Publish time should match"
-        );
+        assertEq(unsafePrice.price, safePrice.price, "Should match aggregator price");
+        assertEq(unsafePrice.publishTime, safePrice.publishTime, "Publish time should match");
         assertEq(unsafePrice.expo, safePrice.expo, "Exponent should match");
         assertEq(unsafePrice.conf, safePrice.conf, "Confidence should match");
     }
