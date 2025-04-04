@@ -11,7 +11,7 @@ import "./interface/IChainSight.sol";
  * @notice Aggregates prices from:
  *         - Chainlink feed (if chainlinkFeed != address(0))
  *         - Pyth feed (if pyth != address(0))
- *         - Zero or more Chainsight oracles (set in constructor or added later)
+ *         - Zero or more ChainSight oracles (set in constructor or added later)
  *
  * Features:
  *  - Outlier detection (only if total sources >=3 and enabled)
@@ -32,16 +32,16 @@ contract MultiSourceOracle is Ownable {
     bytes32 public pythPriceId; // only relevant if pyth != address(0)
 
     // ----------------------------------------------------
-    // Multiple Chainsight sources
+    // Multiple ChainSight sources
     // ----------------------------------------------------
-    struct ChainsightSource {
+    struct ChainSightSource {
         IChainSight oracle;
         address sender;
         bytes32 key;
         uint8 decimals;
     }
 
-    ChainsightSource[] public chainsightSources;
+    ChainSightSource[] public chainsightSources;
 
     // ----------------------------------------------------
     // Configuration
@@ -70,13 +70,13 @@ contract MultiSourceOracle is Ownable {
      * @param _chainlinkFeed Address of chainlink aggregator (if 0 => no chainlink)
      * @param _pyth Address of pyth contract (if 0 => no pyth)
      * @param _pythPriceId Price feed ID for pyth
-     * @param _chainsightOracles Array of Chainsight sources to configure in constructor
+     * @param _chainsightOracles Array of ChainSight sources to configure in constructor
      */
     constructor(
         address _chainlinkFeed,
         address _pyth,
         bytes32 _pythPriceId,
-        ChainsightSource[] memory _chainsightOracles
+        ChainSightSource[] memory _chainsightOracles
     ) Ownable(msg.sender) {
         if (_chainlinkFeed != address(0)) {
             chainlinkFeed = AggregatorV3Interface(_chainlinkFeed);
@@ -85,7 +85,7 @@ contract MultiSourceOracle is Ownable {
             pyth = IPyth(_pyth);
             pythPriceId = _pythPriceId;
         }
-        // Initialize Chainsight sources
+        // Initialize ChainSight sources
         for (uint256 i = 0; i < _chainsightOracles.length; i++) {
             chainsightSources.push(_chainsightOracles[i]);
         }
@@ -113,18 +113,18 @@ contract MultiSourceOracle is Ownable {
     }
 
     /**
-     * @notice Adds a Chainsight source to the aggregator
+     * @notice Adds a ChainSight source to the aggregator
      */
-    function addChainsightSource(address oracle, address sender, bytes32 key, uint8 decimals) external onlyOwner {
-        ChainsightSource memory src =
-            ChainsightSource({oracle: IChainSight(oracle), sender: sender, key: key, decimals: decimals});
+    function addChainSightSource(address oracle, address sender, bytes32 key, uint8 decimals) external onlyOwner {
+        ChainSightSource memory src =
+            ChainSightSource({oracle: IChainSight(oracle), sender: sender, key: key, decimals: decimals});
         chainsightSources.push(src);
     }
 
     /**
-     * @notice Removes all existing Chainsight sources (for reconfiguration).
+     * @notice Removes all existing ChainSight sources (for reconfiguration).
      */
-    function clearAllChainsightSources() external onlyOwner {
+    function clearAllChainSightSources() external onlyOwner {
         delete chainsightSources;
     }
 
@@ -221,7 +221,7 @@ contract MultiSourceOracle is Ownable {
     }
 
     // ----------------------------------------------------
-    // Chainsight-like interface
+    // ChainSight-like interface
     // ----------------------------------------------------
     /**
      * @notice Because this aggregator might combine many chainsight oracles,
@@ -325,7 +325,7 @@ contract MultiSourceOracle is Ownable {
             idx++;
         }
 
-        // Chainsight
+        // ChainSight
         for (uint256 i = 0; i < chainsightSources.length; i++) {
             (uint256 csPrice, uint64 csTime) = chainsightSources[i].oracle.readAsUint256WithTimestamp(
                 chainsightSources[i].sender, chainsightSources[i].key
@@ -468,7 +468,7 @@ contract MultiSourceOracle is Ownable {
     }
 
     /**
-     * @dev Scale Chainsight price to aggregatorDecimals
+     * @dev Scale ChainSight price to aggregatorDecimals
      */
     function _scaleChainSightPrice(uint256 rawPrice, uint8 sourceDecimals) internal view returns (uint256) {
         if (sourceDecimals < aggregatorDecimals) {

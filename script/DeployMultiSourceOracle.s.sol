@@ -37,12 +37,12 @@ contract DeployMultiSourceOracleScript is Script {
         vm.startBroadcast();
 
         // Prepare an array for constructor
-        MultiSourceOracle.ChainsightSource[] memory initChainsight = new MultiSourceOracle.ChainsightSource[](0);
+        MultiSourceOracle.ChainSightSource[] memory initChainSight = new MultiSourceOracle.ChainSightSource[](0);
 
         // If user provided a nonzero address for chainsightOracle, let's push it:
         if (chainsightOracle != address(0)) {
-            initChainsight = new MultiSourceOracle.ChainsightSource[](1);
-            initChainsight[0] = MultiSourceOracle.ChainsightSource({
+            initChainSight = new MultiSourceOracle.ChainSightSource[](1);
+            initChainSight[0] = MultiSourceOracle.ChainSightSource({
                 oracle: IChainSight(chainsightOracle),
                 sender: chainsightSender,
                 key: chainsightKey,
@@ -51,7 +51,7 @@ contract DeployMultiSourceOracleScript is Script {
         }
 
         // Deploy
-        oracle = new MultiSourceOracle(chainlinkFeed, pythAddr, pythPriceId, initChainsight);
+        oracle = new MultiSourceOracle(chainlinkFeed, pythAddr, pythPriceId, initChainSight);
 
         console2.log("MultiSourceOracle deployed at:", address(oracle));
 
