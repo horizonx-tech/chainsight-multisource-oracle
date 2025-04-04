@@ -116,7 +116,8 @@ contract MultiSourceOracleTest is Test {
         initCs[0] = MultiSourceOracle.ChainsightSource({
             oracle: IChainSight(address(cs1)),
             sender: address(this),
-            key: bytes32("cs1")
+            key: bytes32("cs1"),
+            decimals: 8
         });
 
         // Deploy aggregator with chainlink + pyth + cs1
@@ -207,8 +208,8 @@ contract MultiSourceOracleTest is Test {
         oracle.clearAllChainsightSources();
 
         // Add 2 chainsight oracles
-        oracle.addChainsightSource(address(cs1), address(this), bytes32("cs1"));
-        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"));
+        oracle.addChainsightSource(address(cs1), address(this), bytes32("cs1"), 8);
+        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"), 8);
 
         // e.g. cs1 => 1,900.00 => 190000000000
         cs1.setPrice(190000000000, uint64(block.timestamp - 5));
@@ -239,8 +240,8 @@ contract MultiSourceOracleTest is Test {
 
         // clear existing cs1 => re-add multiple
         oracle.clearAllChainsightSources();
-        oracle.addChainsightSource(address(cs1), address(this), bytes32("cs1"));
-        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"));
+        oracle.addChainsightSource(address(cs1), address(this), bytes32("cs1"), 8);
+        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"), 8);
 
         // chainlink => e.g. 1,800 => 180000000000
         chainlink.setLatestAnswer(int256(180000000000), block.timestamp - 3);
@@ -276,8 +277,8 @@ contract MultiSourceOracleTest is Test {
 
         // clear existing cs1 => re-add multiple
         oracle.clearAllChainsightSources();
-        oracle.addChainsightSource(address(cs1), address(this), bytes32("cs1"));
-        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"));
+        oracle.addChainsightSource(address(cs1), address(this), bytes32("cs1"), 8);
+        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"), 8);
 
         // pyth => 1,840 => 184000000000 (expo=-8)
         pyth.setPrice(184000000000, -8, block.timestamp - 3);
@@ -309,7 +310,7 @@ contract MultiSourceOracleTest is Test {
      */
     function test_ChainlinkPythAnd2Chainsight() public {
         // We already have chainlink + pyth + cs1 from setUp. Let's add cs2
-        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"));
+        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"), 8);
 
         // chainlink => ~1,840 => 184000000000
         chainlink.setLatestAnswer(int256(184000000000), block.timestamp - 10);

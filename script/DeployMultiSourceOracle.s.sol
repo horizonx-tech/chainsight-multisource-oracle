@@ -45,7 +45,8 @@ contract DeployMultiSourceOracleScript is Script {
             initChainsight[0] = MultiSourceOracle.ChainsightSource({
                 oracle: IChainSight(chainsightOracle),
                 sender: chainsightSender,
-                key: chainsightKey
+                key: chainsightKey,
+                decimals: 8
             });
         }
 
