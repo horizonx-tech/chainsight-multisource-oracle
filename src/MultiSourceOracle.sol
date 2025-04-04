@@ -55,6 +55,11 @@ contract MultiSourceOracle is Ownable {
     //   - total number of sources (chainlink + pyth + chainsight) >= 3
     bool public outlierDetectionEnabled = true;
 
+    // Aggregator's final decimals setting
+    //  - e.g., aggregatorDecimals=8 => unify everything to 8 decimals
+    //  - e.g., aggregatorDecimals=18 => unify everything to 18 decimals
+    uint8 public aggregatorDecimals = 8;
+
     // Can be paused in emergencies
     bool public paused = false;
 
@@ -132,6 +137,14 @@ contract MultiSourceOracle is Ownable {
         delete chainsightSources;
     }
 
+    /**
+     * @notice Set aggregatorDecimals (e.g. 8 or 18) to unify final scale
+     */
+    function setAggregatorDecimals(uint8 _decimals) external onlyOwner {
+        require(_decimals <= 20, "Too large decimals");
+        aggregatorDecimals = _decimals;
+    }
+
     // ----------------------------------------------------
     // Other configuration
     // ----------------------------------------------------
@@ -192,11 +205,13 @@ contract MultiSourceOracle is Ownable {
         require(id == pythPriceId, "Invalid pyth ID");
 
         uint256 agg = _getAggregatedPrice();
+        int256 dec = int256(uint256(aggregatorDecimals));
+        int32 expo = int32(-dec); // negative exponent
         return
             IPyth.Price(
                 int64(int256(agg)),
                 0, // dummy confidence
-                -8, // indicates 8 decimals
+                expo,
                 block.timestamp
             );
     }
@@ -215,11 +230,13 @@ contract MultiSourceOracle is Ownable {
         require(id == pythPriceId, "Invalid pyth ID");
 
         uint256 agg = _getAggregatedPrice();
+        int256 dec = int256(uint256(aggregatorDecimals));
+        int32 expo = int32(-dec);
         return
             IPyth.Price(
                 int64(int256(agg)),
                 0, // dummy confidence
-                -8, // indicates 8 decimals
+                expo,
                 block.timestamp
             );
     }
@@ -244,7 +261,7 @@ contract MultiSourceOracle is Ownable {
     // Internal aggregator logic
     // ----------------------------------------------------
     struct SourceData {
-        uint256 price; // scaled to 8 decimals
+        uint256 price; // scaled to aggregatorDecimals
         uint256 weight; // 0 => stale or outlier
         uint256 timestamp;
     }
@@ -342,7 +359,10 @@ contract MultiSourceOracle is Ownable {
                 );
 
             // cPrice is unsigned => no negative check
-            uint256 csScaled = _scaleChainSightPrice(csPrice, chainsightSources[i].decimals);
+            uint256 csScaled = _scaleChainSightPrice(
+                csPrice,
+                chainsightSources[i].decimals
+            );
             uint256 csWeight = _validWeight(csTime);
             list[idx] = SourceData(csScaled, csWeight, csTime);
             idx++;
@@ -457,40 +477,54 @@ contract MultiSourceOracle is Ownable {
     // ----------------------------------------------------
     // Helpers
     // ----------------------------------------------------
+    /**
+     * @dev Scale Chainlink price to aggregatorDecimals
+     */
     function _scaleChainlinkPrice(
         int256 _price,
-        uint8 _decimals
-    ) internal pure returns (uint256) {
+        uint8 feedDecimals
+    ) internal view returns (uint256) {
+        // require(_price >= 0, "Chainlink negative"); => check outside
         uint256 scaled = uint256(_price);
-        if (_decimals > 8) {
-            scaled /= 10 ** (_decimals - 8);
-        } else if (_decimals < 8) {
-            scaled *= 10 ** (8 - _decimals);
+        if (feedDecimals < aggregatorDecimals) {
+            scaled = scaled * (10 ** (aggregatorDecimals - feedDecimals));
+        } else if (feedDecimals > aggregatorDecimals) {
+            scaled = scaled / (10 ** (feedDecimals - aggregatorDecimals));
         }
         return scaled;
     }
 
+    /**
+     * @dev Scale Pyth price to aggregatorDecimals
+     */
     function _scalePythPrice(
         int64 _price,
         int32 _expo
-    ) internal pure returns (uint256) {
+    ) internal view returns (uint256) {
+        // require(_price >= 0, "Pyth negative"); => check outside
         int256 p = int256(_price);
-        int256 diff = int256(8 + _expo);
+        int256 aggDec = int256(uint256(aggregatorDecimals));
+        int256 diff = aggDec + _expo;
+        uint256 scaled;
         if (diff >= 0) {
-            return uint256(p) * (10 ** uint256(diff));
+            scaled = uint256(p) * (10 ** uint256(diff));
         } else {
-            return uint256(p) / (10 ** uint256(-diff));
+            scaled = uint256(p) / (10 ** uint256(-diff));
         }
+        return scaled;
     }
 
+    /**
+     * @dev Scale Chainsight price to aggregatorDecimals
+     */
     function _scaleChainSightPrice(
         uint256 rawPrice,
         uint8 sourceDecimals
-    ) internal pure returns (uint256) {
-        if (sourceDecimals > 8) {
-            return rawPrice / 10 ** (sourceDecimals - 8);
-        } else if (sourceDecimals < 8) {
-            return rawPrice * 10 ** (8 - sourceDecimals);
+    ) internal view returns (uint256) {
+        if (sourceDecimals < aggregatorDecimals) {
+            return rawPrice * (10 ** (aggregatorDecimals - sourceDecimals));
+        } else if (sourceDecimals > aggregatorDecimals) {
+            return rawPrice / (10 ** (sourceDecimals - aggregatorDecimals));
         }
         return rawPrice;
     }
