@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
 
 import "forge-std/Test.sol";
 import "../src/MultiSourceOracle.sol";
@@ -56,9 +56,9 @@ contract PythMock is IPyth {
 }
 
 /**
- * @dev Simple Chainsight mock. Typically returns a large integer for ETH/USD, e.g. 1,922,130,00000, etc.
+ * @dev Simple ChainSight mock. Typically returns a large integer for ETH/USD, e.g. 1,922,130,00000, etc.
  */
-contract ChainsightMock is IChainSight {
+contract ChainSightMock is IChainSight {
     uint256 private _price;
     uint64 private _ts;
 
@@ -79,8 +79,8 @@ contract MultiSourceOracleTest is Test {
     // Mocks
     ChainlinkMock chainlink;
     PythMock pyth;
-    ChainsightMock cs1;
-    ChainsightMock cs2;
+    ChainSightMock cs1;
+    ChainSightMock cs2;
 
     MultiSourceOracle oracle;
 
@@ -98,7 +98,7 @@ contract MultiSourceOracleTest is Test {
         return oracle.getPriceUnsafe(id);
     }
 
-    function _readOracleChainsightStyle() internal view returns (uint256, uint64) {
+    function _readOracleChainSightStyle() internal view returns (uint256, uint64) {
         return oracle.readAsUint256WithTimestamp(address(0), bytes32(0));
     }
 
@@ -108,15 +108,16 @@ contract MultiSourceOracleTest is Test {
         chainlink.setDecimals(8);
 
         pyth = new PythMock();
-        cs1 = new ChainsightMock();
-        cs2 = new ChainsightMock();
+        cs1 = new ChainSightMock();
+        cs2 = new ChainSightMock();
 
-        // Prepare initial Chainsight array [cs1 only]
-        MultiSourceOracle.ChainsightSource[] memory initCs = new MultiSourceOracle.ChainsightSource[](1);
-        initCs[0] = MultiSourceOracle.ChainsightSource({
+        // Prepare initial ChainSight array [cs1 only]
+        MultiSourceOracle.ChainSightSource[] memory initCs = new MultiSourceOracle.ChainSightSource[](1);
+        initCs[0] = MultiSourceOracle.ChainSightSource({
             oracle: IChainSight(address(cs1)),
             sender: address(this),
-            key: bytes32("cs1")
+            key: bytes32("cs1"),
+            decimals: 8
         });
 
         // Deploy aggregator with chainlink + pyth + cs1
@@ -138,7 +139,7 @@ contract MultiSourceOracleTest is Test {
     function test_SingleProvider_Chainlink() public {
         // disable pyth + chainsight
         oracle.setPythFeed(address(0), bytes32(0));
-        oracle.clearAllChainsightSources();
+        oracle.clearAllChainSightSources();
 
         // chainlink => 1,920.13 * 1e8 => 192013000000
         chainlink.setLatestAnswer(int256(192013000000), block.timestamp);
@@ -161,7 +162,7 @@ contract MultiSourceOracleTest is Test {
         // disable chainlink
         oracle.setChainlinkFeed(address(0));
         // disable chainsight
-        oracle.clearAllChainsightSources();
+        oracle.clearAllChainSightSources();
 
         // Suppose we set Pyth => price=192671999500, expo=-8 => actual ~ 1926.71999500
         pyth.setPrice(
@@ -181,34 +182,34 @@ contract MultiSourceOracleTest is Test {
     }
 
     /**
-     * @notice Only Chainsight => aggregator must match the single Chainsight's returned price
+     * @notice Only ChainSight => aggregator must match the single ChainSight's returned price
      *         Example: 1,922.13 => 192213000000
      */
-    function test_SingleProvider_Chainsight() public {
+    function test_SingleProvider_ChainSight() public {
         // disable chainlink + pyth
         oracle.setChainlinkFeed(address(0));
         oracle.setPythFeed(address(0), bytes32(0));
 
-        // Chainsight => e.g. 1,922.13 => 192213000000 for 8 decimals
+        // ChainSight => e.g. 1,922.13 => 192213000000 for 8 decimals
         cs1.setPrice(192213000000, uint64(block.timestamp));
 
         uint256 chainlinkStyle = _readOracleChainlinkStyle();
-        assertEq(chainlinkStyle, 192213000000, "Chainsight-only aggregator mismatch");
+        assertEq(chainlinkStyle, 192213000000, "ChainSight-only aggregator mismatch");
     }
 
     /**
      * @notice No chainlink, no pyth, 2 or more chainsight sources => aggregator uses those only.
      */
-    function test_MultipleChainsightOnly() public {
+    function test_MultipleChainSightOnly() public {
         // disable chainlink + pyth
         oracle.setChainlinkFeed(address(0));
         oracle.setPythFeed(address(0), bytes32(0));
         // remove cs1 from constructor
-        oracle.clearAllChainsightSources();
+        oracle.clearAllChainSightSources();
 
         // Add 2 chainsight oracles
-        oracle.addChainsightSource(address(cs1), address(this), bytes32("cs1"));
-        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"));
+        oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
+        oracle.addChainSightSource(address(cs2), address(this), bytes32("cs2"), 8);
 
         // e.g. cs1 => 1,900.00 => 190000000000
         cs1.setPrice(190000000000, uint64(block.timestamp - 5));
@@ -233,14 +234,14 @@ contract MultiSourceOracleTest is Test {
      * @notice aggregator has chainlink + 2 chainsight => 3 total => outlier detection possible
      *         Confirm aggregator is consistent across chainlink-like, chainsight-like
      */
-    function test_ChainlinkAnd2Chainsight() public {
+    function test_ChainlinkAnd2ChainSight() public {
         // disable pyth
         oracle.setPythFeed(address(0), bytes32(0));
 
         // clear existing cs1 => re-add multiple
-        oracle.clearAllChainsightSources();
-        oracle.addChainsightSource(address(cs1), address(this), bytes32("cs1"));
-        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"));
+        oracle.clearAllChainSightSources();
+        oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
+        oracle.addChainSightSource(address(cs2), address(this), bytes32("cs2"), 8);
 
         // chainlink => e.g. 1,800 => 180000000000
         chainlink.setLatestAnswer(int256(180000000000), block.timestamp - 3);
@@ -262,7 +263,7 @@ contract MultiSourceOracleTest is Test {
         oracle.getPrice(bytes32("TestPrice"));
 
         // aggregator => chainsight-like read
-        (uint256 csVal,) = _readOracleChainsightStyle();
+        (uint256 csVal,) = _readOracleChainSightStyle();
         assertEq(cStyle, csVal, "Chainlink-like vs chainsight-like mismatch");
     }
 
@@ -270,14 +271,14 @@ contract MultiSourceOracleTest is Test {
      * @notice aggregator with pyth + 2 chainsight => 3 total => outlier detection possible
      *         Confirm aggregator is consistent across chainlink-like, pyth-like, chainsight-like
      */
-    function test_PythAnd2Chainsight() public {
+    function test_PythAnd2ChainSight() public {
         // disable chainlink
         oracle.setChainlinkFeed(address(0));
 
         // clear existing cs1 => re-add multiple
-        oracle.clearAllChainsightSources();
-        oracle.addChainsightSource(address(cs1), address(this), bytes32("cs1"));
-        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"));
+        oracle.clearAllChainSightSources();
+        oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
+        oracle.addChainSightSource(address(cs2), address(this), bytes32("cs2"), 8);
 
         // pyth => 1,840 => 184000000000 (expo=-8)
         pyth.setPrice(184000000000, -8, block.timestamp - 3);
@@ -295,7 +296,7 @@ contract MultiSourceOracleTest is Test {
         IPyth.Price memory pUnsafe = _readOraclePythUnsafe(bytes32("TestPrice"));
 
         // aggregator => chainsight-like
-        (uint256 csVal,) = _readOracleChainsightStyle();
+        (uint256 csVal,) = _readOracleChainSightStyle();
 
         // all should match
         assertEq(aggregatorVal, uint256(int256(pSafe.price)), "Mismatch aggregator vs Pyth.getPrice");
@@ -304,12 +305,12 @@ contract MultiSourceOracleTest is Test {
     }
 
     /**
-     * @notice aggregator with chainlink + pyth + 2 or 3 Chainsight => large combination
+     * @notice aggregator with chainlink + pyth + 2 or 3 ChainSight => large combination
      *         We can confirm cross-interface consistency, outlier detection, etc.
      */
-    function test_ChainlinkPythAnd2Chainsight() public {
+    function test_ChainlinkPythAnd2ChainSight() public {
         // We already have chainlink + pyth + cs1 from setUp. Let's add cs2
-        oracle.addChainsightSource(address(cs2), address(this), bytes32("cs2"));
+        oracle.addChainSightSource(address(cs2), address(this), bytes32("cs2"), 8);
 
         // chainlink => ~1,840 => 184000000000
         chainlink.setLatestAnswer(int256(184000000000), block.timestamp - 10);
@@ -358,11 +359,11 @@ contract MultiSourceOracleTest is Test {
 
         IPyth.Price memory pSafe = _readOraclePythSafe(bytes32("TestPrice"));
         IPyth.Price memory pUnsafe = _readOraclePythUnsafe(bytes32("TestPrice"));
-        (uint256 csVal,) = _readOracleChainsightStyle();
+        (uint256 csVal,) = _readOracleChainSightStyle();
 
         assertEq(chainlinkStyle, uint256(int256(pSafe.price)), "Mismatch aggregator vs Pyth.getPrice");
         assertEq(chainlinkStyle, uint256(int256(pUnsafe.price)), "Mismatch aggregator vs Pyth.getPriceUnsafe");
-        assertEq(chainlinkStyle, csVal, "Mismatch aggregator vs Chainsight read");
+        assertEq(chainlinkStyle, csVal, "Mismatch aggregator vs ChainSight read");
 
         // aggregator sets pSafe.publishTime = block.timestamp
         // aggregator sets pUnsafe.publishTime= block.timestamp as well
@@ -484,5 +485,38 @@ contract MultiSourceOracleTest is Test {
         assertEq(unsafePrice.publishTime, safePrice.publishTime, "Publish time should match");
         assertEq(unsafePrice.expo, safePrice.expo, "Exponent should match");
         assertEq(unsafePrice.conf, safePrice.conf, "Confidence should match");
+    }
+
+    /**
+     * @dev New test to confirm that setAggregatorDecimals() works correctly.
+     *      We check: decimals=8 => decimals=18 => decimals=8.
+     */
+    function test_DynamicAggregatorDecimals() public {
+        // (1) aggregatorDecimals=8 by default
+        // Let's set chainlink = 1.23 * 1e8 => 123000000
+        chainlink.setLatestAnswer(int256(123000000), block.timestamp);
+
+        {
+            // aggregator decimals=8 => direct match
+            uint256 val = _readOracleChainlinkStyle();
+            assertEq(val, 123000000, "initial decimals=8 mismatch");
+        }
+
+        // (2) Now set aggregatorDecimals=18
+        oracle.setAggregatorDecimals(18);
+        {
+            // chainlink(8 decimals) => aggregator(18) => scale by 10^(18-8) = 1e10
+            // 1.23e8 => 1.23e8 * 1e10 = 1.23e18
+            uint256 val = _readOracleChainlinkStyle();
+            uint256 expected = 123000000 * 10 ** (18 - 8); // = 1.23e18
+            assertEq(val, expected, "after decimals=18 mismatch");
+        }
+
+        // (3) Switch back to aggregatorDecimals=8
+        oracle.setAggregatorDecimals(8);
+        {
+            uint256 val = _readOracleChainlinkStyle();
+            assertEq(val, 123000000, "again decimals=8 mismatch");
+        }
     }
 }
