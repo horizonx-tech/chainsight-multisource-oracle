@@ -14,6 +14,7 @@ import "./interface/IChainSight.sol";
  *         - Zero or more ChainSight oracles (set in constructor or added later)
  *
  * Features:
+ *  - Timestamp-weighted average price
  *  - Outlier detection (only if total sources >=3 and enabled)
  *  - Fallback if all data is stale (returns newest stale price)
  *  - Pausable by the owner (for security)
@@ -50,7 +51,7 @@ contract MultiSourceOracle is Ownable {
     uint256 public lambda = 1925; // weighting half-life ~1 hour
     uint256 public maxPriceDeviationBps = 2000; // ±20%
 
-    // Outlier detection applies iff:
+    // Outlier detection applies if:
     //   - outlierDetectionEnabled == true
     //   - total number of sources (chainlink + pyth + chainsight) >= 3
     bool public outlierDetectionEnabled = true;
@@ -67,10 +68,10 @@ contract MultiSourceOracle is Ownable {
     // Constructor with optional feeds + optional chainsight sources
     // ----------------------------------------------------
     /**
-     * @param _chainlinkFeed Address of chainlink aggregator (if 0 => no chainlink)
-     * @param _pyth Address of pyth contract (if 0 => no pyth)
-     * @param _pythPriceId Price feed ID for pyth
-     * @param _chainsightOracles Array of ChainSight sources to configure in constructor
+     * @param _chainlinkFeed Chainlink aggregator address (0 to disable)
+     * @param _pyth Pyth contract address (0 to disable)
+     * @param _pythPriceId Price feed ID for Pyth
+     * @param _chainsightOracles Initial ChainSight sources
      */
     constructor(
         address _chainlinkFeed,
@@ -95,50 +96,29 @@ contract MultiSourceOracle is Ownable {
     // Owner-only configuration
     // ----------------------------------------------------
 
-    /**
-     * @notice Update chainlink feed
-     * @dev if _feed=0, chainlink is effectively "disabled"
-     */
     function setChainlinkFeed(address _feed) external onlyOwner {
         chainlinkFeed = AggregatorV3Interface(_feed);
     }
 
-    /**
-     * @notice Update pyth contract + price ID
-     * @dev if _pyth=0, pyth is effectively "disabled"
-     */
     function setPythFeed(address _pyth, bytes32 _priceId) external onlyOwner {
         pyth = IPyth(_pyth);
         pythPriceId = _priceId;
     }
 
-    /**
-     * @notice Adds a ChainSight source to the aggregator
-     */
     function addChainSightSource(address oracle, address sender, bytes32 key, uint8 decimals) external onlyOwner {
         ChainSightSource memory src =
             ChainSightSource({oracle: IChainSight(oracle), sender: sender, key: key, decimals: decimals});
         chainsightSources.push(src);
     }
 
-    /**
-     * @notice Removes all existing ChainSight sources (for reconfiguration).
-     */
     function clearAllChainSightSources() external onlyOwner {
         delete chainsightSources;
     }
 
-    /**
-     * @notice Set aggregatorDecimals (e.g. 8 or 18) to unify final scale
-     */
     function setAggregatorDecimals(uint8 _decimals) external onlyOwner {
         require(_decimals <= 20, "Too large decimals");
         aggregatorDecimals = _decimals;
     }
-
-    // ----------------------------------------------------
-    // Other configuration
-    // ----------------------------------------------------
 
     function setStaleThreshold(uint256 _seconds) external onlyOwner {
         staleThreshold = _seconds;
@@ -198,13 +178,6 @@ contract MultiSourceOracle is Ownable {
         );
     }
 
-    /**
-     * @notice A "safe" version similar to Pyth's getPrice which reverts in Pyth if the underlying data is stale.
-     *         However, our aggregator does not revert when stale (it falls back to newest stale).
-     *         Here, for simplicity, we return the aggregated price just like getPriceUnsafe, but
-     *         still keep the same signature as Pyth’s getPrice.
-     *         If you need a strict “revert if stale” behavior, you can add custom checks here.
-     */
     function getPrice(bytes32 id) external view returns (IPyth.Price memory price) {
         require(address(pyth) != address(0), "No pyth");
         require(id == pythPriceId, "Invalid pyth ID");
@@ -249,7 +222,7 @@ contract MultiSourceOracle is Ownable {
     function _getAggregatedPrice() internal view returns (uint256) {
         require(!paused, "Aggregator is paused");
 
-        // 1) Collect all sources (chainlink? pyth? chainsight?)
+        // 1) Collect all sources
         SourceData[] memory list = _collectAllSources();
 
         // 2) Count how many are fresh
@@ -440,7 +413,6 @@ contract MultiSourceOracle is Ownable {
      * @dev Scale Chainlink price to aggregatorDecimals
      */
     function _scaleChainlinkPrice(int256 _price, uint8 feedDecimals) internal view returns (uint256) {
-        // require(_price >= 0, "Chainlink negative"); => check outside
         uint256 scaled = uint256(_price);
         if (feedDecimals < aggregatorDecimals) {
             scaled = scaled * (10 ** (aggregatorDecimals - feedDecimals));
@@ -454,7 +426,6 @@ contract MultiSourceOracle is Ownable {
      * @dev Scale Pyth price to aggregatorDecimals
      */
     function _scalePythPrice(int64 _price, int32 _expo) internal view returns (uint256) {
-        // require(_price >= 0, "Pyth negative"); => check outside
         int256 p = int256(_price);
         int256 aggDec = int256(uint256(aggregatorDecimals));
         int256 diff = aggDec + _expo;
