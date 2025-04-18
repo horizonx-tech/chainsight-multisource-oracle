@@ -576,4 +576,21 @@ contract MultiSourceOracleTest is Test {
         vm.expectRevert("Invalid pyth ID");
         oracle.getPrice(bytes32("Wrong ID"));
     }
+
+    function test_AddDuplicateReverts() public {
+        // cs1 with key "cs1" was already supplied in setUp()
+        vm.expectRevert("ChainSight: dupliate source");
+        oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
+    }
+
+    function test_ClearThenReAdd() public {
+        oracle.clearAllChainSightSources();
+
+        // should succeed now
+        oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
+
+        // but adding the same one again still reverts
+        vm.expectRevert("ChainSight: dupliate source");
+        oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
+    }
 }

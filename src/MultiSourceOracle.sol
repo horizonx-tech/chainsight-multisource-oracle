@@ -66,6 +66,15 @@ contract MultiSourceOracle is Ownable {
     // Can be paused in emergencies
     bool public paused = false;
 
+    // ChainSight source (sender x key)
+    mapping(bytes32 => bool) public csSourceExists;
+
+    /// @notice Emitted when a new ChainSight source is accepted
+    event ChainSightSourceAdded(address indexed oracle, address indexed sender, bytes32 indexed key, uint8 decimals);
+
+    /// @notice Emitted once when all ChainSight sources are cleared
+    event AllChainSightSourcesCleared();
+
     // ----------------------------------------------------
     // Constructor with optional feeds + optional chainsight sources
     // ----------------------------------------------------
@@ -90,7 +99,16 @@ contract MultiSourceOracle is Ownable {
         }
         // Initialize ChainSight sources
         for (uint256 i = 0; i < _chainsightOracles.length; i++) {
+            bytes32 h = _sourceHash(_chainsightOracles[i].sender, _chainsightOracles[i].key);
+            require(!csSourceExists[h], "ChainSight: dupliate source");
+            csSourceExists[h] = true;
             chainsightSources.push(_chainsightOracles[i]);
+            emit ChainSightSourceAdded(
+                address(_chainsightOracles[i].oracle),
+                _chainsightOracles[i].sender,
+                _chainsightOracles[i].key,
+                _chainsightOracles[i].decimals
+            );
         }
     }
 
@@ -108,13 +126,25 @@ contract MultiSourceOracle is Ownable {
     }
 
     function addChainSightSource(address oracle, address sender, bytes32 key, uint8 decimals) external onlyOwner {
+        bytes32 h = _sourceHash(sender, key);
+        require(!csSourceExists[h], "ChainSight: dupliate source");
+        csSourceExists[h] = true;
+
         ChainSightSource memory src =
             ChainSightSource({oracle: IChainSight(oracle), sender: sender, key: key, decimals: decimals});
         chainsightSources.push(src);
+        emit ChainSightSourceAdded(oracle, sender, key, decimals);
     }
 
     function clearAllChainSightSources() external onlyOwner {
+        // Remove each mapping bit & emit individual removal events
+        for (uint256 i; i < chainsightSources.length; ++i) {
+            ChainSightSource memory s = chainsightSources[i];
+            bytes32 h = _sourceHash(s.sender, s.key);
+            delete csSourceExists[h];
+        }
         delete chainsightSources;
+        emit AllChainSightSourcesCleared();
     }
 
     function setAggregatorDecimals(uint8 _decimals) external onlyOwner {
@@ -457,5 +487,9 @@ contract MultiSourceOracle is Ownable {
     function _expDecay(uint256 elapsed) internal view returns (uint256) {
         // weight = 1e12 / (1e6 + lambda * elapsed)
         return 1e12 / (1e6 + lambda * elapsed);
+    }
+
+    function _sourceHash(address sender, bytes32 key) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(sender, key));
     }
 }
