@@ -21,6 +21,8 @@ import "./interface/IChainSight.sol";
  *  - Owner can update chainlink feed, pyth feed, or chainsight sources at any time
  */
 contract MultiSourceOracle is Ownable {
+    uint256 constant INT64_MAX = uint256(uint64(type(int64).max));
+
     // ----------------------------------------------------
     // Optional Chainlink feed
     // ----------------------------------------------------
@@ -163,33 +165,24 @@ contract MultiSourceOracle is Ownable {
     // Pyth-like interface
     // ----------------------------------------------------
     function getPriceUnsafe(bytes32 id) external view returns (IPyth.Price memory) {
-        // If pyth is not used, this will revert anyway because pyth=address(0).
-        require(address(pyth) != address(0), "No pyth");
-        require(id == pythPriceId, "Invalid pyth ID");
-
-        uint256 agg = _getAggregatedPrice();
-        int256 dec = int256(uint256(aggregatorDecimals));
-        int32 expo = int32(-dec); // negative exponent
-        return IPyth.Price(
-            int64(int256(agg)),
-            0, // dummy confidence
-            expo,
-            block.timestamp
-        );
+        return getPrice(id);
     }
 
-    function getPrice(bytes32 id) external view returns (IPyth.Price memory price) {
-        require(address(pyth) != address(0), "No pyth");
+    function getPrice(bytes32 id) public view returns (IPyth.Price memory price) {
         require(id == pythPriceId, "Invalid pyth ID");
+        uint256 raw = _getAggregatedPrice();
+        int32 exp = -int32(uint32(aggregatorDecimals));
 
-        uint256 agg = _getAggregatedPrice();
-        int256 dec = int256(uint256(aggregatorDecimals));
-        int32 expo = int32(-dec);
+        // Scale down until the value fits into an int64.
+        while (raw > INT64_MAX) {
+            raw /= 10;
+            exp += 1;
+        }
         return IPyth.Price(
-            int64(int256(agg)),
-            0, // dummy confidence
-            expo,
-            block.timestamp
+            int64(uint64(raw)), // price
+            0, // confidence
+            exp, // exponent
+            uint64(block.timestamp) // publishTime
         );
     }
 

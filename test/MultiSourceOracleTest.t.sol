@@ -148,8 +148,8 @@ contract MultiSourceOracleTest is Test {
         // Expect aggregator == chainlink
         assertEq(agg, 192013000000, "Chainlink-only aggregator mismatch");
 
-        // pyth-like getPrice => revert with "No pyth"
-        vm.expectRevert("No pyth");
+        // pyth-like getPrice => revert with "Invalid pyth ID"
+        vm.expectRevert("Invalid pyth ID");
         oracle.getPrice(bytes32("TestPrice"));
     }
 
@@ -222,7 +222,7 @@ contract MultiSourceOracleTest is Test {
         assertLt(cStyle, 196000000001);
 
         // can't read pyth => revert
-        vm.expectRevert("No pyth");
+        vm.expectRevert("Invalid pyth ID");
         oracle.getPrice(bytes32("TestPrice"));
     }
 
@@ -259,7 +259,7 @@ contract MultiSourceOracleTest is Test {
         assertLt(cStyle, 210000000000, "Expected aggregator <2,100");
 
         // pyth => revert
-        vm.expectRevert("No pyth");
+        vm.expectRevert("Invalid pyth ID");
         oracle.getPrice(bytes32("TestPrice"));
 
         // aggregator => chainsight-like read
@@ -518,5 +518,62 @@ contract MultiSourceOracleTest is Test {
             uint256 val = _readOracleChainlinkStyle();
             assertEq(val, 123000000, "again decimals=8 mismatch");
         }
+    }
+
+    /**
+     * @dev getPrice / getPriceUnsafe must return the aggregated value
+     *      even when no Pyth contract is configured.
+     *      Scenario: Chainlink‑only feed.
+     */
+    function test_GetPrice_NoPyth_ChainlinkOnly() public {
+        // Disable Pyth & ChainSight
+        oracle.setPythFeed(address(0), bytes32(0));
+        oracle.clearAllChainSightSources();
+
+        // Chainlink => 1 925.55 USD → 1 925 5500 0000 (8 decimals)
+        chainlink.setLatestAnswer(int256(192555000000), block.timestamp);
+
+        uint256 expected = 192555000000;
+
+        IPyth.Price memory pSafe = oracle.getPrice(bytes32(0));
+        IPyth.Price memory pUnsafe = oracle.getPriceUnsafe(bytes32(0));
+
+        // price
+        assertEq(uint256(int256(pSafe.price)), expected, "safe price mismatch");
+        assertEq(uint256(int256(pUnsafe.price)), expected, "unsafe price mismatch");
+
+        // expo == ‑8  (default aggregatorDecimals)
+        assertEq(pSafe.expo, -8, "safe expo mismatch");
+        assertEq(pUnsafe.expo, -8, "unsafe expo mismatch");
+
+        // publishTime == block.timestamp (set inside _buildPrice)
+        assertEq(pSafe.publishTime, uint64(block.timestamp), "publishTime mismatch");
+        assertEq(pUnsafe.publishTime, pSafe.publishTime, "unsafe vs safe publishTime");
+    }
+
+    /**
+     * @dev Same check but with ChainSight‑only source.
+     */
+    function test_GetPrice_NoPyth_ChainSightOnly() public {
+        // Disable Chainlink & Pyth
+        oracle.setChainlinkFeed(address(0));
+        oracle.setPythFeed(address(0), bytes32(0));
+
+        // ChainSight price 1 988.00 USD → 198800000000 (8 decimals)
+        cs1.setPrice(198800000000, uint64(block.timestamp));
+
+        IPyth.Price memory p = oracle.getPrice(bytes32(0));
+        assertEq(uint256(int256(p.price)), 198800000000, "chainsight price mismatch");
+        assertEq(p.expo, -8, "expo mismatch");
+    }
+
+    /**
+     * @dev Calling getPrice() with a wrong id MUST still revert.
+     */
+    function test_GetPrice_WrongId() public {
+        oracle.setPythFeed(address(0), bytes32(0)); // ensure no pyth
+
+        vm.expectRevert("Invalid pyth ID");
+        oracle.getPrice(bytes32("Wrong ID"));
     }
 }
