@@ -291,49 +291,50 @@ contract MultiSourceOracle is Ownable {
     }
 
     function _collectAllSources() internal view returns (SourceData[] memory) {
-        // Calculate how many sources in total
-        uint256 totalSources = 0;
-        if (address(chainlinkFeed) != address(0)) totalSources++;
-        if (address(pyth) != address(0)) totalSources++;
-        totalSources += chainsightSources.length;
-
-        SourceData[] memory list = new SourceData[](totalSources);
-
-        uint256 idx = 0;
+        // Upper‑bound array (max possible sources)
+        uint256 max = 2 + chainsightSources.length; // chainlink + pyth + N
+        SourceData[] memory tmp = new SourceData[](max);
+        uint256 idx;
 
         // Chainlink
         if (address(chainlinkFeed) != address(0)) {
-            (, int256 clAnswer,, uint256 clTime,) = chainlinkFeed.latestRoundData();
-            require(clAnswer >= 0, "Chainlink negative");
-            uint256 clScaled = _scaleChainlinkPrice(clAnswer, chainlinkFeed.decimals());
-            uint256 clWeight = _validWeight(clTime);
-            list[idx] = SourceData(clScaled, clWeight, clTime);
-            idx++;
+            try chainlinkFeed.latestRoundData() returns (uint80, int256 clAnswer, uint256, uint256 clTime, uint80) {
+                if (clAnswer >= 0) {
+                    tmp[idx++] = SourceData(
+                        _scaleChainlinkPrice(clAnswer, chainlinkFeed.decimals()), _validWeight(clTime), clTime
+                    );
+                }
+            } catch { /* skip */ }
         }
 
         // Pyth
         if (address(pyth) != address(0)) {
-            IPyth.Price memory pData = pyth.getPriceUnsafe(pythPriceId);
-            require(pData.price >= 0, "Pyth negative");
-            uint256 pyScaled = _scalePythPrice(pData.price, pData.expo);
-            uint256 pyWeight = _validWeight(pData.publishTime);
-            list[idx] = SourceData(pyScaled, pyWeight, pData.publishTime);
-            idx++;
+            try pyth.getPriceUnsafe(pythPriceId) returns (IPyth.Price memory pData) {
+                if (pData.price >= 0) {
+                    tmp[idx++] = SourceData(
+                        _scalePythPrice(pData.price, pData.expo), _validWeight(pData.publishTime), pData.publishTime
+                    );
+                }
+            } catch { /* skip */ }
         }
 
         // ChainSight
         for (uint256 i = 0; i < chainsightSources.length; i++) {
-            (uint256 csPrice, uint64 csTime) = chainsightSources[i].oracle.readAsUint256WithTimestamp(
+            try chainsightSources[i].oracle.readAsUint256WithTimestamp(
                 chainsightSources[i].sender, chainsightSources[i].key
-            );
-
-            // cPrice is unsigned => no negative check
-            uint256 csScaled = _scaleChainSightPrice(csPrice, chainsightSources[i].decimals);
-            uint256 csWeight = _validWeight(csTime);
-            list[idx] = SourceData(csScaled, csWeight, csTime);
-            idx++;
+            ) returns (uint256 csPrice, uint64 csTime) {
+                tmp[idx++] = SourceData(
+                    _scaleChainSightPrice(csPrice, chainsightSources[i].decimals), _validWeight(csTime), csTime
+                );
+            } catch { /* skip */ }
         }
 
+        require(idx > 0, "No Live Sources");
+        // trim to exact length
+        SourceData[] memory list = new SourceData[](idx);
+        for (uint256 k; k < idx; ++k) {
+            list[k] = tmp[k];
+        }
         return list;
     }
 
