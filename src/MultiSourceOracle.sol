@@ -66,6 +66,9 @@ contract MultiSourceOracle is Ownable {
     // Can be paused in emergencies
     bool public paused = false;
 
+    // Allow to the newest stale price when all sources are stale
+    bool public allowStaleFallback = false;
+
     // ChainSight source (sender x key)
     mapping(bytes32 => bool) public csSourceExists;
 
@@ -74,6 +77,9 @@ contract MultiSourceOracle is Ownable {
 
     /// @notice Emitted once when all ChainSight sources are cleared
     event AllChainSightSourcesCleared();
+
+    /// @notice Emitted when the owner toggles stale-price fallback
+    event AllowStaleFallbackSet(bool allowed);
 
     // ----------------------------------------------------
     // Constructor with optional feeds + optional chainsight sources
@@ -168,6 +174,11 @@ contract MultiSourceOracle is Ownable {
         outlierDetectionEnabled = _enabled;
     }
 
+    function setAllowStaleFallback(bool _allowed) external onlyOwner {
+        allowStaleFallback = _allowed;
+        emit AllowStaleFallbackSet(_allowed);
+    }
+
     // ----------------------------------------------------
     // Pausing
     // ----------------------------------------------------
@@ -258,6 +269,7 @@ contract MultiSourceOracle is Ownable {
 
         // 3) If none fresh => fallback newest stale
         if (freshCount == 0) {
+            require(allowStaleFallback, "All sources stale");
             return _fallbackNewest(list);
         }
 

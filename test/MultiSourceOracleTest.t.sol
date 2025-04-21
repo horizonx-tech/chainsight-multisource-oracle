@@ -480,6 +480,8 @@ contract MultiSourceOracleTest is Test {
     }
 
     function test_AllStaleFallback() public {
+        oracle.setAllowStaleFallback(true);
+
         chainlink.setLatestAnswer(int256(183916600000), block.timestamp - 7200);
         pyth.setPrice(183900000000, -8, block.timestamp - 7300);
         cs1.setPrice(183950000000, uint64(block.timestamp - 7400));
@@ -487,6 +489,15 @@ contract MultiSourceOracleTest is Test {
         // All stale => fallback to newest => chainlink
         uint256 agg = _readOracleChainlinkStyle();
         assertEq(agg, 183916600000, "Should fallback to chainlink as newest stale");
+    }
+
+    function test_AllStale_Reverts() public {
+        chainlink.setLatestAnswer(int256(183916600000), block.timestamp - 7200);
+        pyth.setPrice(183900000000, -8, block.timestamp - 7300);
+        cs1.setPrice(183950000000, uint64(block.timestamp - 7400));
+
+        vm.expectRevert("All sources stale");
+        _readOracleChainlinkStyle();
     }
 
     function test_PauseUnpause() public {
