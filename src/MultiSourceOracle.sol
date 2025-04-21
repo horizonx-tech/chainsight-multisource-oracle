@@ -72,14 +72,41 @@ contract MultiSourceOracle is Ownable {
     // ChainSight source (sender x key)
     mapping(bytes32 => bool) public csSourceExists;
 
+    /// @notice Emitted when the Chainlink aggregator address is updated.
+    event ChainlinkFeedUpdated(address indexed newFeed);
+
+    /// @notice Emitted when the Pyth contract address or its price‑id is updated.
+    event PythFeedUpdated(address indexed newPyth, bytes32 indexed priceId);
+
     /// @notice Emitted when a new ChainSight source is accepted
     event ChainSightSourceAdded(address indexed oracle, address indexed sender, bytes32 indexed key, uint8 decimals);
 
     /// @notice Emitted once when all ChainSight sources are cleared
     event AllChainSightSourcesCleared();
 
+    /// @notice Emitted when the target output decimals are changed.
+    event AggregatorDecimalsUpdated(uint8 newDecimals);
+
+    /// @notice Emitted when the “stale threshold” (seconds) is changed.
+    event StaleThresholdUpdated(uint256 newThreshold);
+
     /// @notice Emitted when the owner toggles stale-price fallback
     event AllowStaleFallbackSet(bool allowed);
+
+    /// @notice Emitted when the exponential‑decay λ parameter is changed.
+    event LambdaUpdated(uint256 newLambda);
+
+    /// @notice Emitted when the ±maxPriceDeviationBps band is changed.
+    event MaxPriceDeviationUpdated(uint256 newDeviationBps);
+
+    /// @notice Emitted when outlier detection is enabled or disabled.
+    event OutlierDetectionEnabledSet(bool enabled);
+
+    /// @notice Emitted when the oracle is paused.
+    event Paused();
+
+    /// @notice Emitted when the oracle is unpaused.
+    event Unpaused();
 
     // ----------------------------------------------------
     // Constructor with optional feeds + optional chainsight sources
@@ -124,11 +151,13 @@ contract MultiSourceOracle is Ownable {
 
     function setChainlinkFeed(address _feed) external onlyOwner {
         chainlinkFeed = AggregatorV3Interface(_feed);
+        emit ChainlinkFeedUpdated(_feed);
     }
 
     function setPythFeed(address _pyth, bytes32 _priceId) external onlyOwner {
         pyth = IPyth(_pyth);
         pythPriceId = _priceId;
+        emit PythFeedUpdated(_pyth, _priceId);
     }
 
     function addChainSightSource(address oracle, address sender, bytes32 key, uint8 decimals) external onlyOwner {
@@ -156,22 +185,27 @@ contract MultiSourceOracle is Ownable {
     function setAggregatorDecimals(uint8 _decimals) external onlyOwner {
         require(_decimals <= 20, "Too large decimals");
         aggregatorDecimals = _decimals;
+        emit AggregatorDecimalsUpdated(_decimals);
     }
 
     function setStaleThreshold(uint256 _seconds) external onlyOwner {
         staleThreshold = _seconds;
+        emit StaleThresholdUpdated(_seconds);
     }
 
     function setLambda(uint256 _lambda) external onlyOwner {
         lambda = _lambda;
+        emit LambdaUpdated(_lambda);
     }
 
     function setMaxPriceDeviationBps(uint256 _bps) external onlyOwner {
         maxPriceDeviationBps = _bps;
+        emit MaxPriceDeviationUpdated(_bps);
     }
 
     function setOutlierDetectionEnabled(bool _enabled) external onlyOwner {
         outlierDetectionEnabled = _enabled;
+        emit OutlierDetectionEnabledSet(_enabled);
     }
 
     function setAllowStaleFallback(bool _allowed) external onlyOwner {
@@ -184,10 +218,12 @@ contract MultiSourceOracle is Ownable {
     // ----------------------------------------------------
     function pause() external onlyOwner {
         paused = true;
+        emit Paused();
     }
 
     function unpause() external onlyOwner {
         paused = false;
+        emit Unpaused();
     }
 
     // ----------------------------------------------------
