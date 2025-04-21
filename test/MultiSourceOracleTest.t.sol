@@ -212,7 +212,7 @@ contract MultiSourceOracleTest is Test {
         assertEq(agg, 192013000000, "Chainlink-only aggregator mismatch");
 
         // pyth-like getPrice => revert with "Invalid pyth ID"
-        vm.expectRevert("Invalid pyth ID");
+        vm.expectRevert("MSO-6: invalid pyth id");
         oracle.getPrice(bytes32("TestPrice"));
     }
 
@@ -285,7 +285,7 @@ contract MultiSourceOracleTest is Test {
         assertLt(cStyle, 196000000001);
 
         // can't read pyth => revert
-        vm.expectRevert("Invalid pyth ID");
+        vm.expectRevert("MSO-6: invalid pyth id");
         oracle.getPrice(bytes32("TestPrice"));
     }
 
@@ -322,7 +322,7 @@ contract MultiSourceOracleTest is Test {
         assertLt(cStyle, 210000000000, "Expected aggregator <2,100");
 
         // pyth => revert
-        vm.expectRevert("Invalid pyth ID");
+        vm.expectRevert("MSO-6: invalid pyth id");
         oracle.getPrice(bytes32("TestPrice"));
 
         // aggregator => chainsight-like read
@@ -496,13 +496,13 @@ contract MultiSourceOracleTest is Test {
         pyth.setPrice(183900000000, -8, block.timestamp - 7300);
         cs1.setPrice(183950000000, uint64(block.timestamp - 7400));
 
-        vm.expectRevert("All sources stale");
+        vm.expectRevert("MSO-4: all sources stale");
         _readOracleChainlinkStyle();
     }
 
     function test_PauseUnpause() public {
         oracle.pause();
-        vm.expectRevert("Aggregator is paused");
+        vm.expectRevert("MSO-3: aggregator paused");
         _readOracleChainlinkStyle();
 
         oracle.unpause();
@@ -647,13 +647,13 @@ contract MultiSourceOracleTest is Test {
     function test_GetPrice_WrongId() public {
         oracle.setPythFeed(address(0), bytes32(0)); // ensure no pyth
 
-        vm.expectRevert("Invalid pyth ID");
+        vm.expectRevert("MSO-6: invalid pyth id");
         oracle.getPrice(bytes32("Wrong ID"));
     }
 
     function test_AddDuplicateReverts() public {
         // cs1 with key "cs1" was already supplied in setUp()
-        vm.expectRevert("ChainSight: dupliate source");
+        vm.expectRevert("MSO-1: duplicate ChainSight source");
         oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
     }
 
@@ -664,7 +664,7 @@ contract MultiSourceOracleTest is Test {
         oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
 
         // but adding the same one again still reverts
-        vm.expectRevert("ChainSight: dupliate source");
+        vm.expectRevert("MSO-1: duplicate ChainSight source");
         oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
     }
 
@@ -719,7 +719,7 @@ contract MultiSourceOracleTest is Test {
         // add one always‑reverting source
         oracle.addChainSightSource(address(new ChainSightRevertMock()), address(this), bytes32("bad"), 8);
 
-        vm.expectRevert("No Live Sources");
+        vm.expectRevert("MSO-5: no live sources");
         _readOracleChainlinkStyle();
     }
 }

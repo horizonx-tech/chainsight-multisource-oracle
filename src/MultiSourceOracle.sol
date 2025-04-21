@@ -133,7 +133,7 @@ contract MultiSourceOracle is Ownable {
         // Initialize ChainSight sources
         for (uint256 i = 0; i < _chainsightOracles.length; i++) {
             bytes32 h = _sourceHash(_chainsightOracles[i].sender, _chainsightOracles[i].key);
-            require(!csSourceExists[h], "ChainSight: dupliate source");
+            require(!csSourceExists[h], "MSO-1: duplicate ChainSight source");
             csSourceExists[h] = true;
             chainsightSources.push(_chainsightOracles[i]);
             emit ChainSightSourceAdded(
@@ -162,7 +162,7 @@ contract MultiSourceOracle is Ownable {
 
     function addChainSightSource(address oracle, address sender, bytes32 key, uint8 decimals) external onlyOwner {
         bytes32 h = _sourceHash(sender, key);
-        require(!csSourceExists[h], "ChainSight: dupliate source");
+        require(!csSourceExists[h], "MSO-1: duplicate ChainSight source");
         csSourceExists[h] = true;
 
         ChainSightSource memory src =
@@ -183,7 +183,7 @@ contract MultiSourceOracle is Ownable {
     }
 
     function setAggregatorDecimals(uint8 _decimals) external onlyOwner {
-        require(_decimals <= 20, "Too large decimals");
+        require(_decimals <= 20, "MSO-2: decimals too large");
         aggregatorDecimals = _decimals;
         emit AggregatorDecimalsUpdated(_decimals);
     }
@@ -246,7 +246,7 @@ contract MultiSourceOracle is Ownable {
     }
 
     function getPrice(bytes32 id) public view returns (IPyth.Price memory price) {
-        require(id == pythPriceId, "Invalid pyth ID");
+        require(id == pythPriceId, "MSO-6: invalid pyth id");
         uint256 raw = _getAggregatedPrice();
         int32 exp = -int32(uint32(aggregatorDecimals));
 
@@ -290,7 +290,7 @@ contract MultiSourceOracle is Ownable {
     }
 
     function _getAggregatedPrice() internal view returns (uint256) {
-        require(!paused, "Aggregator is paused");
+        require(!paused, "MSO-3: aggregator paused");
 
         // 1) Collect all sources
         SourceData[] memory list = _collectAllSources();
@@ -305,7 +305,7 @@ contract MultiSourceOracle is Ownable {
 
         // 3) If none fresh => fallback newest stale
         if (freshCount == 0) {
-            require(allowStaleFallback, "All sources stale");
+            require(allowStaleFallback, "MSO-4: all sources stale");
             return _fallbackNewest(list);
         }
 
@@ -377,7 +377,7 @@ contract MultiSourceOracle is Ownable {
             } catch { /* skip */ }
         }
 
-        require(idx > 0, "No Live Sources");
+        require(idx > 0, "MSO-5: no live sources");
         // trim to exact length
         SourceData[] memory list = new SourceData[](idx);
         for (uint256 k; k < idx; ++k) {
