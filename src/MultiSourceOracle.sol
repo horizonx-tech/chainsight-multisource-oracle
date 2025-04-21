@@ -21,6 +21,8 @@ import "./interface/IChainSight.sol";
  *  - Owner can update chainlink feed, pyth feed, or chainsight sources at any time
  */
 contract MultiSourceOracle is Ownable {
+    uint256 constant INT64_MAX = uint256(uint64(type(int64).max));
+
     // ----------------------------------------------------
     // Optional Chainlink feed
     // ----------------------------------------------------
@@ -64,6 +66,48 @@ contract MultiSourceOracle is Ownable {
     // Can be paused in emergencies
     bool public paused = false;
 
+    // Allow to the newest stale price when all sources are stale
+    bool public allowStaleFallback = false;
+
+    // ChainSight source (sender x key)
+    mapping(bytes32 => bool) public csSourceExists;
+
+    /// @notice Emitted when the Chainlink aggregator address is updated.
+    event ChainlinkFeedUpdated(address indexed newFeed);
+
+    /// @notice Emitted when the Pyth contract address or its price‑id is updated.
+    event PythFeedUpdated(address indexed newPyth, bytes32 indexed priceId);
+
+    /// @notice Emitted when a new ChainSight source is accepted
+    event ChainSightSourceAdded(address indexed oracle, address indexed sender, bytes32 indexed key, uint8 decimals);
+
+    /// @notice Emitted once when all ChainSight sources are cleared
+    event AllChainSightSourcesCleared();
+
+    /// @notice Emitted when the target output decimals are changed.
+    event AggregatorDecimalsUpdated(uint8 newDecimals);
+
+    /// @notice Emitted when the “stale threshold” (seconds) is changed.
+    event StaleThresholdUpdated(uint256 newThreshold);
+
+    /// @notice Emitted when the owner toggles stale-price fallback
+    event AllowStaleFallbackSet(bool allowed);
+
+    /// @notice Emitted when the exponential‑decay λ parameter is changed.
+    event LambdaUpdated(uint256 newLambda);
+
+    /// @notice Emitted when the ±maxPriceDeviationBps band is changed.
+    event MaxPriceDeviationUpdated(uint256 newDeviationBps);
+
+    /// @notice Emitted when outlier detection is enabled or disabled.
+    event OutlierDetectionEnabledSet(bool enabled);
+
+    /// @notice Emitted when the oracle is paused.
+    event Paused();
+
+    /// @notice Emitted when the oracle is unpaused.
+    event Unpaused();
+
     // ----------------------------------------------------
     // Constructor with optional feeds + optional chainsight sources
     // ----------------------------------------------------
@@ -88,7 +132,16 @@ contract MultiSourceOracle is Ownable {
         }
         // Initialize ChainSight sources
         for (uint256 i = 0; i < _chainsightOracles.length; i++) {
+            bytes32 h = _sourceHash(_chainsightOracles[i].sender, _chainsightOracles[i].key);
+            require(!csSourceExists[h], "MSO-1: duplicate ChainSight source");
+            csSourceExists[h] = true;
             chainsightSources.push(_chainsightOracles[i]);
+            emit ChainSightSourceAdded(
+                address(_chainsightOracles[i].oracle),
+                _chainsightOracles[i].sender,
+                _chainsightOracles[i].key,
+                _chainsightOracles[i].decimals
+            );
         }
     }
 
@@ -98,42 +151,66 @@ contract MultiSourceOracle is Ownable {
 
     function setChainlinkFeed(address _feed) external onlyOwner {
         chainlinkFeed = AggregatorV3Interface(_feed);
+        emit ChainlinkFeedUpdated(_feed);
     }
 
     function setPythFeed(address _pyth, bytes32 _priceId) external onlyOwner {
         pyth = IPyth(_pyth);
         pythPriceId = _priceId;
+        emit PythFeedUpdated(_pyth, _priceId);
     }
 
     function addChainSightSource(address oracle, address sender, bytes32 key, uint8 decimals) external onlyOwner {
+        bytes32 h = _sourceHash(sender, key);
+        require(!csSourceExists[h], "MSO-1: duplicate ChainSight source");
+        csSourceExists[h] = true;
+
         ChainSightSource memory src =
             ChainSightSource({oracle: IChainSight(oracle), sender: sender, key: key, decimals: decimals});
         chainsightSources.push(src);
+        emit ChainSightSourceAdded(oracle, sender, key, decimals);
     }
 
     function clearAllChainSightSources() external onlyOwner {
+        // Remove each mapping bit & emit individual removal events
+        for (uint256 i; i < chainsightSources.length; ++i) {
+            ChainSightSource memory s = chainsightSources[i];
+            bytes32 h = _sourceHash(s.sender, s.key);
+            delete csSourceExists[h];
+        }
         delete chainsightSources;
+        emit AllChainSightSourcesCleared();
     }
 
     function setAggregatorDecimals(uint8 _decimals) external onlyOwner {
-        require(_decimals <= 20, "Too large decimals");
+        require(_decimals <= 20, "MSO-2: decimals too large");
         aggregatorDecimals = _decimals;
+        emit AggregatorDecimalsUpdated(_decimals);
     }
 
     function setStaleThreshold(uint256 _seconds) external onlyOwner {
         staleThreshold = _seconds;
+        emit StaleThresholdUpdated(_seconds);
     }
 
     function setLambda(uint256 _lambda) external onlyOwner {
         lambda = _lambda;
+        emit LambdaUpdated(_lambda);
     }
 
     function setMaxPriceDeviationBps(uint256 _bps) external onlyOwner {
         maxPriceDeviationBps = _bps;
+        emit MaxPriceDeviationUpdated(_bps);
     }
 
     function setOutlierDetectionEnabled(bool _enabled) external onlyOwner {
         outlierDetectionEnabled = _enabled;
+        emit OutlierDetectionEnabledSet(_enabled);
+    }
+
+    function setAllowStaleFallback(bool _allowed) external onlyOwner {
+        allowStaleFallback = _allowed;
+        emit AllowStaleFallbackSet(_allowed);
     }
 
     // ----------------------------------------------------
@@ -141,10 +218,12 @@ contract MultiSourceOracle is Ownable {
     // ----------------------------------------------------
     function pause() external onlyOwner {
         paused = true;
+        emit Paused();
     }
 
     function unpause() external onlyOwner {
         paused = false;
+        emit Unpaused();
     }
 
     // ----------------------------------------------------
@@ -163,33 +242,24 @@ contract MultiSourceOracle is Ownable {
     // Pyth-like interface
     // ----------------------------------------------------
     function getPriceUnsafe(bytes32 id) external view returns (IPyth.Price memory) {
-        // If pyth is not used, this will revert anyway because pyth=address(0).
-        require(address(pyth) != address(0), "No pyth");
-        require(id == pythPriceId, "Invalid pyth ID");
-
-        uint256 agg = _getAggregatedPrice();
-        int256 dec = int256(uint256(aggregatorDecimals));
-        int32 expo = int32(-dec); // negative exponent
-        return IPyth.Price(
-            int64(int256(agg)),
-            0, // dummy confidence
-            expo,
-            block.timestamp
-        );
+        return getPrice(id);
     }
 
-    function getPrice(bytes32 id) external view returns (IPyth.Price memory price) {
-        require(address(pyth) != address(0), "No pyth");
-        require(id == pythPriceId, "Invalid pyth ID");
+    function getPrice(bytes32 id) public view returns (IPyth.Price memory price) {
+        require(id == pythPriceId, "MSO-6: invalid pyth id");
+        uint256 raw = _getAggregatedPrice();
+        int32 exp = -int32(uint32(aggregatorDecimals));
 
-        uint256 agg = _getAggregatedPrice();
-        int256 dec = int256(uint256(aggregatorDecimals));
-        int32 expo = int32(-dec);
+        // Scale down until the value fits into an int64.
+        while (raw > INT64_MAX) {
+            raw /= 10;
+            exp += 1;
+        }
         return IPyth.Price(
-            int64(int256(agg)),
-            0, // dummy confidence
-            expo,
-            block.timestamp
+            int64(uint64(raw)), // price
+            0, // confidence
+            exp, // exponent
+            uint64(block.timestamp) // publishTime
         );
     }
 
@@ -220,7 +290,7 @@ contract MultiSourceOracle is Ownable {
     }
 
     function _getAggregatedPrice() internal view returns (uint256) {
-        require(!paused, "Aggregator is paused");
+        require(!paused, "MSO-3: aggregator paused");
 
         // 1) Collect all sources
         SourceData[] memory list = _collectAllSources();
@@ -235,6 +305,7 @@ contract MultiSourceOracle is Ownable {
 
         // 3) If none fresh => fallback newest stale
         if (freshCount == 0) {
+            require(allowStaleFallback, "MSO-4: all sources stale");
             return _fallbackNewest(list);
         }
 
@@ -268,49 +339,50 @@ contract MultiSourceOracle is Ownable {
     }
 
     function _collectAllSources() internal view returns (SourceData[] memory) {
-        // Calculate how many sources in total
-        uint256 totalSources = 0;
-        if (address(chainlinkFeed) != address(0)) totalSources++;
-        if (address(pyth) != address(0)) totalSources++;
-        totalSources += chainsightSources.length;
-
-        SourceData[] memory list = new SourceData[](totalSources);
-
-        uint256 idx = 0;
+        // Upper‑bound array (max possible sources)
+        uint256 max = 2 + chainsightSources.length; // chainlink + pyth + N
+        SourceData[] memory tmp = new SourceData[](max);
+        uint256 idx;
 
         // Chainlink
         if (address(chainlinkFeed) != address(0)) {
-            (, int256 clAnswer,, uint256 clTime,) = chainlinkFeed.latestRoundData();
-            require(clAnswer >= 0, "Chainlink negative");
-            uint256 clScaled = _scaleChainlinkPrice(clAnswer, chainlinkFeed.decimals());
-            uint256 clWeight = _validWeight(clTime);
-            list[idx] = SourceData(clScaled, clWeight, clTime);
-            idx++;
+            try chainlinkFeed.latestRoundData() returns (uint80, int256 clAnswer, uint256, uint256 clTime, uint80) {
+                if (clAnswer >= 0) {
+                    tmp[idx++] = SourceData(
+                        _scaleChainlinkPrice(clAnswer, chainlinkFeed.decimals()), _validWeight(clTime), clTime
+                    );
+                }
+            } catch { /* skip */ }
         }
 
         // Pyth
         if (address(pyth) != address(0)) {
-            IPyth.Price memory pData = pyth.getPriceUnsafe(pythPriceId);
-            require(pData.price >= 0, "Pyth negative");
-            uint256 pyScaled = _scalePythPrice(pData.price, pData.expo);
-            uint256 pyWeight = _validWeight(pData.publishTime);
-            list[idx] = SourceData(pyScaled, pyWeight, pData.publishTime);
-            idx++;
+            try pyth.getPriceUnsafe(pythPriceId) returns (IPyth.Price memory pData) {
+                if (pData.price >= 0) {
+                    tmp[idx++] = SourceData(
+                        _scalePythPrice(pData.price, pData.expo), _validWeight(pData.publishTime), pData.publishTime
+                    );
+                }
+            } catch { /* skip */ }
         }
 
         // ChainSight
         for (uint256 i = 0; i < chainsightSources.length; i++) {
-            (uint256 csPrice, uint64 csTime) = chainsightSources[i].oracle.readAsUint256WithTimestamp(
+            try chainsightSources[i].oracle.readAsUint256WithTimestamp(
                 chainsightSources[i].sender, chainsightSources[i].key
-            );
-
-            // cPrice is unsigned => no negative check
-            uint256 csScaled = _scaleChainSightPrice(csPrice, chainsightSources[i].decimals);
-            uint256 csWeight = _validWeight(csTime);
-            list[idx] = SourceData(csScaled, csWeight, csTime);
-            idx++;
+            ) returns (uint256 csPrice, uint64 csTime) {
+                tmp[idx++] = SourceData(
+                    _scaleChainSightPrice(csPrice, chainsightSources[i].decimals), _validWeight(csTime), csTime
+                );
+            } catch { /* skip */ }
         }
 
+        require(idx > 0, "MSO-5: no live sources");
+        // trim to exact length
+        SourceData[] memory list = new SourceData[](idx);
+        for (uint256 k; k < idx; ++k) {
+            list[k] = tmp[k];
+        }
         return list;
     }
 
@@ -464,5 +536,9 @@ contract MultiSourceOracle is Ownable {
     function _expDecay(uint256 elapsed) internal view returns (uint256) {
         // weight = 1e12 / (1e6 + lambda * elapsed)
         return 1e12 / (1e6 + lambda * elapsed);
+    }
+
+    function _sourceHash(address sender, bytes32 key) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(sender, key));
     }
 }

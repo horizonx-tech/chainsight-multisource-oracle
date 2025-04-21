@@ -72,6 +72,69 @@ contract ChainSightMock is IChainSight {
     }
 }
 
+/// ---------- helper revert‑on‑demand mocks ----------
+contract ChainlinkRevertMock is AggregatorV3Interface {
+    uint8 private _decimals = 8;
+    int256 private _answer;
+    uint256 private _updatedAt;
+    bool internal _shouldRevert;
+
+    function setLatestAnswer(int256 ans, uint256 ts) external {
+        _answer = ans;
+        _updatedAt = ts;
+    }
+
+    function setDecimals(uint8 d) external {
+        _decimals = d;
+    }
+
+    function setShouldRevert(bool b) external {
+        _shouldRevert = b;
+    }
+
+    function decimals() external view override returns (uint8) {
+        return _decimals;
+    }
+
+    function latestRoundData() external view override returns (uint80, int256, uint256, uint256, uint80) {
+        if (_shouldRevert) revert("link fail");
+        return (0, _answer, 0, _updatedAt, 0);
+    }
+}
+
+contract PythRevertMock is IPyth {
+    Price private storedPrice;
+    uint256 public validTimePeriod = 300;
+    bool internal _shouldRevert;
+
+    function setPrice(int64 p, int32 expo, uint256 ts) external {
+        storedPrice = Price(p, 0, expo, ts);
+    }
+
+    function setShouldRevert(bool b) external {
+        _shouldRevert = b;
+    }
+
+    function getPriceUnsafe(bytes32) external view override returns (Price memory price) {
+        if (_shouldRevert) revert("pyth fail");
+        return storedPrice;
+    }
+
+    function getPrice(bytes32) external view override returns (Price memory price) {
+        if (_shouldRevert) revert("pyth fail");
+        if (block.timestamp > storedPrice.publishTime + validTimePeriod) {
+            revert("StalePrice");
+        }
+        return storedPrice;
+    }
+}
+
+contract ChainSightRevertMock is IChainSight {
+    function readAsUint256WithTimestamp(address, bytes32) external pure override returns (uint256, uint64) {
+        revert("cs fail");
+    }
+}
+
 /**
  * @title MultiSourceOracleTest
  */
@@ -148,8 +211,8 @@ contract MultiSourceOracleTest is Test {
         // Expect aggregator == chainlink
         assertEq(agg, 192013000000, "Chainlink-only aggregator mismatch");
 
-        // pyth-like getPrice => revert with "No pyth"
-        vm.expectRevert("No pyth");
+        // pyth-like getPrice => revert with "Invalid pyth ID"
+        vm.expectRevert("MSO-6: invalid pyth id");
         oracle.getPrice(bytes32("TestPrice"));
     }
 
@@ -222,7 +285,7 @@ contract MultiSourceOracleTest is Test {
         assertLt(cStyle, 196000000001);
 
         // can't read pyth => revert
-        vm.expectRevert("No pyth");
+        vm.expectRevert("MSO-6: invalid pyth id");
         oracle.getPrice(bytes32("TestPrice"));
     }
 
@@ -259,7 +322,7 @@ contract MultiSourceOracleTest is Test {
         assertLt(cStyle, 210000000000, "Expected aggregator <2,100");
 
         // pyth => revert
-        vm.expectRevert("No pyth");
+        vm.expectRevert("MSO-6: invalid pyth id");
         oracle.getPrice(bytes32("TestPrice"));
 
         // aggregator => chainsight-like read
@@ -417,6 +480,8 @@ contract MultiSourceOracleTest is Test {
     }
 
     function test_AllStaleFallback() public {
+        oracle.setAllowStaleFallback(true);
+
         chainlink.setLatestAnswer(int256(183916600000), block.timestamp - 7200);
         pyth.setPrice(183900000000, -8, block.timestamp - 7300);
         cs1.setPrice(183950000000, uint64(block.timestamp - 7400));
@@ -426,9 +491,18 @@ contract MultiSourceOracleTest is Test {
         assertEq(agg, 183916600000, "Should fallback to chainlink as newest stale");
     }
 
+    function test_AllStale_Reverts() public {
+        chainlink.setLatestAnswer(int256(183916600000), block.timestamp - 7200);
+        pyth.setPrice(183900000000, -8, block.timestamp - 7300);
+        cs1.setPrice(183950000000, uint64(block.timestamp - 7400));
+
+        vm.expectRevert("MSO-4: all sources stale");
+        _readOracleChainlinkStyle();
+    }
+
     function test_PauseUnpause() public {
         oracle.pause();
-        vm.expectRevert("Aggregator is paused");
+        vm.expectRevert("MSO-3: aggregator paused");
         _readOracleChainlinkStyle();
 
         oracle.unpause();
@@ -518,5 +592,134 @@ contract MultiSourceOracleTest is Test {
             uint256 val = _readOracleChainlinkStyle();
             assertEq(val, 123000000, "again decimals=8 mismatch");
         }
+    }
+
+    /**
+     * @dev getPrice / getPriceUnsafe must return the aggregated value
+     *      even when no Pyth contract is configured.
+     *      Scenario: Chainlink‑only feed.
+     */
+    function test_GetPrice_NoPyth_ChainlinkOnly() public {
+        // Disable Pyth & ChainSight
+        oracle.setPythFeed(address(0), bytes32(0));
+        oracle.clearAllChainSightSources();
+
+        // Chainlink => 1 925.55 USD → 1 925 5500 0000 (8 decimals)
+        chainlink.setLatestAnswer(int256(192555000000), block.timestamp);
+
+        uint256 expected = 192555000000;
+
+        IPyth.Price memory pSafe = oracle.getPrice(bytes32(0));
+        IPyth.Price memory pUnsafe = oracle.getPriceUnsafe(bytes32(0));
+
+        // price
+        assertEq(uint256(int256(pSafe.price)), expected, "safe price mismatch");
+        assertEq(uint256(int256(pUnsafe.price)), expected, "unsafe price mismatch");
+
+        // expo == ‑8  (default aggregatorDecimals)
+        assertEq(pSafe.expo, -8, "safe expo mismatch");
+        assertEq(pUnsafe.expo, -8, "unsafe expo mismatch");
+
+        // publishTime == block.timestamp (set inside _buildPrice)
+        assertEq(pSafe.publishTime, uint64(block.timestamp), "publishTime mismatch");
+        assertEq(pUnsafe.publishTime, pSafe.publishTime, "unsafe vs safe publishTime");
+    }
+
+    /**
+     * @dev Same check but with ChainSight‑only source.
+     */
+    function test_GetPrice_NoPyth_ChainSightOnly() public {
+        // Disable Chainlink & Pyth
+        oracle.setChainlinkFeed(address(0));
+        oracle.setPythFeed(address(0), bytes32(0));
+
+        // ChainSight price 1 988.00 USD → 198800000000 (8 decimals)
+        cs1.setPrice(198800000000, uint64(block.timestamp));
+
+        IPyth.Price memory p = oracle.getPrice(bytes32(0));
+        assertEq(uint256(int256(p.price)), 198800000000, "chainsight price mismatch");
+        assertEq(p.expo, -8, "expo mismatch");
+    }
+
+    /**
+     * @dev Calling getPrice() with a wrong id MUST still revert.
+     */
+    function test_GetPrice_WrongId() public {
+        oracle.setPythFeed(address(0), bytes32(0)); // ensure no pyth
+
+        vm.expectRevert("MSO-6: invalid pyth id");
+        oracle.getPrice(bytes32("Wrong ID"));
+    }
+
+    function test_AddDuplicateReverts() public {
+        // cs1 with key "cs1" was already supplied in setUp()
+        vm.expectRevert("MSO-1: duplicate ChainSight source");
+        oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
+    }
+
+    function test_ClearThenReAdd() public {
+        oracle.clearAllChainSightSources();
+
+        // should succeed now
+        oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
+
+        // but adding the same one again still reverts
+        vm.expectRevert("MSO-1: duplicate ChainSight source");
+        oracle.addChainSightSource(address(cs1), address(this), bytes32("cs1"), 8);
+    }
+
+    function test_ChainlinkReverts_ButOthersWork() public {
+        // swap in revertible chainlink
+        ChainlinkRevertMock link = new ChainlinkRevertMock();
+        link.setLatestAnswer(int256(180000000000), block.timestamp);
+        link.setShouldRevert(true);
+        oracle.setChainlinkFeed(address(link));
+
+        // pyth + cs still OK
+        pyth.setPrice(185000000000, -8, block.timestamp);
+        cs1.setPrice(182000000000, uint64(block.timestamp));
+
+        uint256 val = _readOracleChainlinkStyle();
+        // must match average of pyth + cs1, so definitely != 1 800
+        assertGt(val, 181000000000);
+        assertLt(val, 186000000000);
+    }
+
+    function test_PythReverts_ButOthersWork() public {
+        PythRevertMock badPyth = new PythRevertMock();
+        badPyth.setPrice(200000000000, -8, block.timestamp);
+        badPyth.setShouldRevert(true);
+        oracle.setPythFeed(address(badPyth), bytes32("id"));
+
+        chainlink.setLatestAnswer(int256(179000000000), block.timestamp);
+        cs1.setPrice(181000000000, uint64(block.timestamp));
+
+        uint256 val = _readOracleChainlinkStyle();
+        assertGt(val, 178000000000);
+        assertLt(val, 182000000000);
+    }
+
+    function test_ChainSightReverts_ButOthersWork() public {
+        oracle.clearAllChainSightSources();
+        oracle.addChainSightSource(address(new ChainSightRevertMock()), address(this), bytes32("bad"), 8);
+
+        chainlink.setLatestAnswer(int256(175000000000), block.timestamp);
+        pyth.setPrice(176000000000, -8, block.timestamp);
+
+        uint256 val = _readOracleChainlinkStyle();
+        assertGt(val, 174000000000);
+        assertLt(val, 177000000000);
+    }
+
+    function test_AllSourcesRevert_Reverts() public {
+        // make everyone revert / be absent
+        oracle.setChainlinkFeed(address(0));
+        oracle.setPythFeed(address(0), bytes32(0));
+        oracle.clearAllChainSightSources();
+        // add one always‑reverting source
+        oracle.addChainSightSource(address(new ChainSightRevertMock()), address(this), bytes32("bad"), 8);
+
+        vm.expectRevert("MSO-5: no live sources");
+        _readOracleChainlinkStyle();
     }
 }
